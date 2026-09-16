@@ -1,0 +1,1560 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0e1014">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="盈亏记账">
+<meta name="format-detection" content="telephone=no">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234c8dff'/%3E%3Cpath d='M14 43l11-13 8 7 15-19' fill='none' stroke='white' stroke-width='5.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<title>盈亏记账</title>
+<style>
+:root{
+  --bg:#0e1014; --card:#171a21; --sub:#1e222b; --line:#282d38;
+  --text:#e9ecf1; --muted:#8b93a3; --faint:#5c6473; --accent:#4c8dff;
+  --profit:#ff5a5f; --loss:#16c08a;
+  --profit-bg:rgba(255,90,95,.13); --loss-bg:rgba(22,192,138,.13);
+  --acc-bg:rgba(76,141,255,.14);
+  --warn:#fab005; --warn-bg:rgba(250,176,5,.13);
+  --shadow:0 10px 30px rgba(0,0,0,.35);
+}
+@media (prefers-color-scheme:light){
+  :root{
+    --bg:#f2f3f7; --card:#ffffff; --sub:#f6f7fa; --line:#e4e7ee;
+    --text:#141821; --muted:#6b7280; --faint:#9aa1ad; --accent:#2f6fe4;
+    --profit:#d92b2b; --loss:#0a8a63;
+    --profit-bg:rgba(217,43,43,.09); --loss-bg:rgba(10,138,99,.09);
+    --acc-bg:rgba(47,111,228,.1);
+    --warn:#a06a00; --warn-bg:rgba(160,106,0,.1);
+    --shadow:0 10px 30px rgba(20,24,33,.1);
+  }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--bg);color:var(--text);
+  font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  padding-bottom:calc(74px + env(safe-area-inset-bottom,0px));
+  overscroll-behavior-y:contain;
+  -webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit;cursor:pointer}
+input,textarea,select{font-family:inherit}
+
+/* ---------- 顶栏 ---------- */
+.topbar{
+  position:sticky;top:0;z-index:20;
+  padding:calc(env(safe-area-inset-top,0px) + 10px) 16px 10px;
+  background:var(--bg);border-bottom:1px solid var(--line);
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  min-height:52px;
+}
+.topbar h1{margin:0;font-size:19px;font-weight:650;letter-spacing:.3px}
+.topbar .sub{font-size:12px;color:var(--muted);text-align:right;line-height:1.35}
+.topbar .sub b{display:block;font-size:15px;font-weight:650;font-variant-numeric:tabular-nums}
+
+/* ---------- 主区 ---------- */
+main{padding:14px 14px 8px;max-width:640px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.sec-title{
+  display:flex;align-items:center;justify-content:space-between;
+  margin:22px 4px 10px;font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.4px;
+}
+.sec-title .btn-mini{
+  background:var(--sub);border:1px solid var(--line);color:var(--muted);
+  border-radius:999px;padding:5px 11px;font-size:12px;
+}
+.sec-title .secbtns{display:flex;gap:7px;align-items:center}
+.sec-title .secbtns .btn-mini:last-child{color:var(--accent);border-color:var(--accent);background:var(--acc-bg)}
+
+/* 统计卡 */
+.stats{padding:20px 18px 16px;background:var(--card);border:1px solid var(--line);border-radius:16px}
+.stats .label{font-size:12px;color:var(--muted);letter-spacing:.5px}
+.stats .big{font-size:38px;font-weight:700;line-height:1.15;margin:6px 0 2px;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+.stats .big.profit{color:var(--profit)}
+.stats .big.loss{color:var(--loss)}
+.stats .hint{font-size:12px;color:var(--faint)}
+.stats .row{display:flex;gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.stats .row div{flex:1}
+.stats .row .k{font-size:11px;color:var(--muted)}
+.stats .row .v{font-size:16px;font-weight:650;font-variant-numeric:tabular-nums;margin-top:3px}
+
+/* 总账对账 */
+.balancebar{
+  display:flex;align-items:center;gap:9px;
+  margin-top:14px;padding:11px 13px;border-radius:13px;
+  background:var(--sub);border:1px solid var(--line);
+  font-size:13.5px;color:var(--muted);
+  transition:opacity .15s;
+}
+.balancebar:active{opacity:.68}
+.balancebar .bic{
+  width:20px;height:20px;border-radius:50%;flex:0 0 20px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:800;
+  background:rgba(127,127,127,.18);color:var(--muted);
+}
+.balancebar .bt{flex:1;text-align:left}
+.balancebar .bv{font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);font-size:14.5px}
+.balancebar.warn{background:var(--warn-bg);border-color:var(--warn);color:var(--warn)}
+.balancebar.warn .bic{background:var(--warn);color:#fff}
+.balancebar.warn .bv{color:var(--warn)}
+
+.balbox{background:var(--sub);border:1px solid var(--line);border-radius:14px;padding:4px 14px}
+.brow{display:flex;justify-content:space-between;align-items:center;padding:11px 0;font-size:14.5px;color:var(--muted)}
+.brow b{font-weight:650;font-variant-numeric:tabular-nums;color:var(--text);font-size:16px}
+.brow b.pos{color:var(--profit)}
+.brow b.neg{color:var(--loss)}
+.brow.tot{border-top:1px solid var(--line)}
+.brow.tot span{color:var(--text);font-weight:550}
+.brow.tot b{font-size:19px}
+
+.verdict{display:flex;flex-direction:column;gap:5px;margin-top:14px;padding:14px;border-radius:14px;font-size:13.5px;line-height:1.65}
+.verdict b{font-size:16px;font-weight:700}
+.verdict span{opacity:.78}
+.verdict.ok{background:var(--acc-bg);border:1px solid var(--accent)}
+.verdict.ok b{color:var(--accent)}
+.verdict.warn{background:var(--warn-bg);border:1px solid var(--warn)}
+.verdict.warn b{color:var(--warn)}
+
+.listrow .amt{font-weight:650;font-variant-numeric:tabular-nums;font-size:15px;white-space:nowrap}
+.listrow .amt.profit{color:var(--profit)}
+.listrow .amt.loss{color:var(--loss)}
+.listrow .amt.zero{color:var(--muted)}
+
+/* 成员条目 */
+.mrow{
+  display:flex;align-items:center;gap:12px;padding:14px 15px;
+  border-bottom:1px solid var(--line);background:var(--card);
+  transition:background .15s;
+}
+.mrow:last-child{border-bottom:0}
+.mrow:active{background:var(--sub)}
+.avatar{
+  width:40px;height:40px;border-radius:12px;flex:0 0 40px;
+  display:flex;align-items:center;justify-content:center;
+  color:#fff;font-weight:700;font-size:17px;
+}
+.minfo{flex:1;min-width:0}
+.minfo .nm{font-size:16px;font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.minfo .mt{font-size:12px;color:var(--muted);margin-top:2px}
+.mval{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.mval .a{font-size:17px;font-weight:700}
+.mval .a.profit{color:var(--profit)}
+.mval .a.loss{color:var(--loss)}
+.mval .a.zero{color:var(--muted)}
+
+/* 主页成员行上的快捷记账按钮 */
+.macts{display:flex;gap:7px;flex:0 0 auto}
+.macts button{
+  width:33px;height:33px;border-radius:11px;padding:0;
+  border:1.5px solid var(--line);background:var(--sub);
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .12s,background .15s;
+}
+.macts button svg{width:17px;height:17px;fill:none;stroke-width:2.6;stroke-linecap:round}
+.macts button:active{transform:scale(.88)}
+.macts button.plus{color:var(--profit);border-color:rgba(255,90,95,.4);background:var(--profit-bg)}
+.macts button.plus svg{stroke:var(--profit)}
+.macts button.minus{color:var(--loss);border-color:rgba(22,192,138,.4);background:var(--loss-bg)}
+.macts button.minus svg{stroke:var(--loss)}
+@media (prefers-color-scheme:light){
+  .macts button.plus{border-color:rgba(217,43,43,.3)}
+  .macts button.minus{border-color:rgba(10,138,99,.3)}
+}
+
+/* 流水 */
+.daygrp{margin-bottom:16px}
+.dayhd{
+  display:flex;justify-content:space-between;align-items:baseline;
+  padding:0 5px 7px;font-size:12.5px;color:var(--muted);
+}
+.dayhd .dsum{font-weight:650;font-variant-numeric:tabular-nums}
+.rec{
+  display:flex;align-items:center;gap:12px;padding:13px 15px;
+  border-bottom:1px solid var(--line);background:var(--card);
+}
+.rec:last-child{border-bottom:0}
+.rec:active{background:var(--sub)}
+.rec .dot{width:8px;height:8px;border-radius:50%;flex:0 0 8px}
+.rec .rinfo{flex:1;min-width:0}
+.rec .rn{font-size:15px;font-weight:550}
+.rec .rt{font-size:12px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rec .rv{font-size:16px;font-weight:650;font-variant-numeric:tabular-nums}
+.rec .rv.profit{color:var(--profit)}
+.rec .rv.loss{color:var(--loss)}
+.rec .rv.zero{color:var(--muted)}
+
+/* 筛选条 */
+.filterbar{
+  display:flex;align-items:center;gap:8px;margin:0 0 14px;
+  background:var(--acc-bg);border:1px solid var(--accent);border-radius:12px;
+  padding:10px 13px;font-size:13.5px;color:var(--text);
+}
+.filterbar b{font-weight:650}
+.filterbar .x{margin-left:auto;background:none;border:0;color:var(--accent);font-size:14px;font-weight:600;padding:2px 4px}
+
+/* 空态 */
+.empty{text-align:center;padding:54px 24px;color:var(--muted);font-size:14px;line-height:1.9}
+.empty .ic{font-size:40px;opacity:.35;display:block;margin-bottom:6px}
+.empty .hl{color:var(--accent);font-weight:600}
+
+/* ---------- 底栏 ---------- */
+.tabbar{
+  position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;
+  background:var(--card);border-top:1px solid var(--line);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  box-shadow:0 -4px 20px rgba(0,0,0,.18);
+}
+.tabbar button{
+  flex:1;background:none;border:0;color:var(--muted);
+  padding:9px 0 8px;display:flex;flex-direction:column;align-items:center;gap:3px;
+  font-size:11px;letter-spacing:.3px;
+}
+.tabbar button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.tabbar button.on{color:var(--accent)}
+
+.fab{
+  position:fixed;right:16px;bottom:calc(80px + env(safe-area-inset-bottom,0px));z-index:35;
+  width:58px;height:58px;border-radius:50%;border:0;
+  background:var(--accent);color:#fff;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 8px 22px rgba(76,141,255,.45);
+  transition:transform .13s;
+}
+.fab:active{transform:scale(.92)}
+.fab svg{width:27px;height:27px;stroke:#fff;fill:none;stroke-width:2.4;stroke-linecap:round}
+
+/* ---------- 弹层 ---------- */
+.mask{
+  position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.55);
+  opacity:0;pointer-events:none;transition:opacity .22s;
+}
+.mask.on{opacity:1;pointer-events:auto}
+.sheet{
+  position:fixed;left:0;right:0;bottom:0;z-index:60;
+  background:var(--card);border-radius:22px 22px 0 0;
+  transform:translateY(102%);transition:transform .27s cubic-bezier(.22,.85,.3,1);
+  padding:6px 16px calc(18px + env(safe-area-inset-bottom,0px));
+  max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  box-shadow:var(--shadow);
+}
+.sheet.on{transform:translateY(0)}
+.sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--line);margin:6px auto 14px}
+.sheet h2{margin:0 0 16px;font-size:17px;font-weight:650;display:flex;align-items:center;justify-content:space-between}
+.sheet h2 .close{background:var(--sub);border:1px solid var(--line);color:var(--muted);width:30px;height:30px;border-radius:50%;font-size:17px;line-height:1;display:flex;align-items:center;justify-content:center}
+.flabel{font-size:12px;color:var(--muted);margin:14px 0 7px;letter-spacing:.3px}
+.flabel:first-of-type{margin-top:0}
+
+input,textarea{
+  width:100%;font-size:16px;color:var(--text);background:var(--sub);
+  border:1px solid var(--line);border-radius:12px;padding:12px 14px;outline:none;
+  transition:border-color .15s;
+}
+input:focus,textarea:focus{border-color:var(--accent)}
+input::placeholder,textarea::placeholder{color:var(--faint);opacity:.75}
+.amountbox input::placeholder{color:var(--faint);opacity:.5}
+textarea{resize:none;min-height:46px}
+input[type=date]{-webkit-appearance:none;appearance:none;min-height:48px}
+
+.amountbox{
+  background:var(--sub);border:1px solid var(--line);border-radius:14px;
+  padding:14px;text-align:center;
+}
+.amountbox input{
+  background:transparent;border:0;padding:0;font-size:34px;font-weight:700;
+  text-align:center;font-variant-numeric:tabular-nums;letter-spacing:-.5px;
+}
+.amountbox input:focus{border:0}
+.amountbox.profit input{color:var(--profit)}
+.amountbox.loss input{color:var(--loss)}
+.amountbox .unit{font-size:12px;color:var(--faint);margin-top:4px}
+
+.seg{display:flex;gap:9px}
+.seg button{
+  flex:1;padding:12px 8px;border-radius:13px;border:1.5px solid var(--line);
+  background:var(--sub);color:var(--muted);font-size:15px;font-weight:550;
+  transition:all .15s;
+}
+.seg button.on[data-sign="1"]{background:var(--profit-bg);border-color:var(--profit);color:var(--profit);font-weight:700}
+.seg button.on[data-sign="-1"]{background:var(--loss-bg);border-color:var(--loss);color:var(--loss);font-weight:700}
+
+.pills{display:flex;gap:8px;overflow-x:auto;padding:2px 0 4px;-webkit-overflow-scrolling:touch}
+.pills::-webkit-scrollbar{display:none}
+.pill{
+  flex:0 0 auto;display:flex;align-items:center;gap:6px;
+  padding:9px 15px;border-radius:999px;border:1.5px solid var(--line);
+  background:var(--sub);color:var(--muted);font-size:14.5px;font-weight:550;white-space:nowrap;
+}
+.pill.on{border-color:var(--accent);background:var(--acc-bg);color:var(--accent)}
+.pill .pdot{width:8px;height:8px;border-radius:50%;flex:0 0 8px}
+
+.btn{
+  width:100%;border:0;border-radius:14px;padding:15px;
+  font-size:16.5px;font-weight:650;background:var(--accent);color:#fff;
+  transition:opacity .15s;
+}
+.btn:active{opacity:.82}
+.btn.ghost{background:var(--sub);color:var(--text);border:1px solid var(--line)}
+.btn.danger{background:rgba(255,90,95,.13);color:var(--profit);border:1px solid var(--profit)}
+.btn+.btn{margin-top:10px}
+
+.sheetrow{display:flex;align-items:center;gap:12px;padding:15px 4px;border-bottom:1px solid var(--line);font-size:15.5px}
+.sheetrow:last-child{border-bottom:0}
+.sheetrow:active{opacity:.6}
+.sheetrow .ico{width:22px;text-align:center;font-size:16px;flex:0 0 22px}
+.sheetrow.danger{color:var(--profit)}
+
+.listrow{
+  display:flex;align-items:center;gap:12px;padding:13px 15px;
+  border-bottom:1px solid var(--line);
+}
+.listrow:last-child{border-bottom:0}
+.listrow .nm{flex:1;font-size:15.5px;font-weight:550}
+.listrow .sm{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;margin-right:2px}
+.iconbtn{
+  background:var(--sub);border:1px solid var(--line);color:var(--muted);
+  border-radius:10px;padding:7px 11px;font-size:13px;
+}
+.iconbtn.warn{color:var(--profit);border-color:rgba(255,90,95,.35)}
+.iconbtn.amber{color:var(--warn);border-color:rgba(250,176,5,.38)}
+
+.hintbox{
+  font-size:12.5px;color:var(--muted);line-height:1.75;
+  background:var(--sub);border:1px solid var(--line);border-radius:12px;padding:12px 14px;
+}
+.footer{text-align:center;color:var(--faint);font-size:11.5px;padding:26px 0 68px;line-height:1.8}
+
+#toast{
+  position:fixed;left:50%;bottom:calc(140px + env(safe-area-inset-bottom,0px));z-index:200;
+  transform:translate(-50%,14px);opacity:0;pointer-events:none;
+  background:rgba(28,32,40,.96);color:#fff;font-size:14px;
+  padding:11px 18px;border-radius:999px;max-width:88vw;
+  display:flex;align-items:center;gap:16px;
+  transition:opacity .22s,transform .22s;box-shadow:0 8px 24px rgba(0,0,0,.35);
+}
+#toast.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+#toast .tmsg{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#toast .toastbtn{
+  background:none;border:0;padding:2px 0;flex:0 0 auto;
+  color:#8ab4ff;font-size:14px;font-weight:650;font-family:inherit;
+  border-bottom:1px solid rgba(138,180,255,.55);
+}
+#toast .toastbtn:active{opacity:.55}
+
+/* 设置页：快捷记账步长 */
+.stepbtns{display:flex;gap:8px;flex-wrap:wrap;padding:0 15px 15px}
+.stepbtn{
+  padding:8px 16px;border-radius:10px;border:1.5px solid var(--line);
+  background:var(--sub);color:var(--muted);font-size:14px;font-weight:600;
+  font-family:inherit;
+}
+.stepbtn.on{border-color:var(--accent);background:var(--acc-bg);color:var(--accent)}
+@media (prefers-color-scheme:light){
+  #toast{background:rgba(20,24,33,.92)}
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <h1 id="pageTitle">盈亏记账</h1>
+  <div class="sub" id="pageSub"></div>
+</header>
+
+<main id="view"></main>
+
+<nav class="tabbar" id="tabbar">
+  <button data-act="tab" data-tab="overview" class="on">
+    <svg viewBox="0 0 24 24"><path d="M4 19V10M10 19V5M16 19v-6M22 19H2"/></svg>
+    <span>总览</span>
+  </button>
+  <button data-act="tab" data-tab="records">
+    <svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+    <span>流水</span>
+  </button>
+  <button data-act="tab" data-tab="settings">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 5 8.9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9.5a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    <span>设置</span>
+  </button>
+</nav>
+
+<button class="fab" data-act="add-record" aria-label="添加记录">
+  <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+</button>
+
+<div class="mask" id="mask" data-act="close-sheet"></div>
+<div class="sheet" id="sheet"></div>
+<div id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+
+/* ================= 基础工具 ================= */
+var PALETTE = ["#4c8dff","#f2994a","#9b6cff","#16c08a","#ff6b9d","#22b8cf","#fab005","#7c8cff","#ff8f5a","#5c9e7a"];
+var WEEK = ["日","一","二","三","四","五","六"];
+
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function esc(s){ return String(s).replace(/[&<>"']/g, function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+}); }
+function money(c){ return (Math.abs(c)/100).toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function moneySign(c){ return (c>0?"+":c<0?"-":"") + money(c); }
+function cls(c){ return c>0?"profit":c<0?"loss":"zero"; }
+function todayStr(){
+  var d = new Date();
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+}
+function fmtDate(str){
+  if(!str) return "";
+  var p = str.split("-").map(Number);
+  var dt = new Date(p[0], p[1]-1, p[2]);
+  var t = new Date(); t.setHours(0,0,0,0);
+  var diff = Math.round((dt - t) / 86400000);
+  var base = p[1]+"月"+p[2]+"日 周"+WEEK[dt.getDay()];
+  if(diff === 0) return "今天 · " + base;
+  if(diff === -1) return "昨天 · " + base;
+  if(diff === 1) return "明天 · " + base;
+  if(p[0] !== t.getFullYear()) return p[0]+"年" + base;
+  return base;
+}
+function parseAmount(s){
+  s = String(s || "").trim().replace(/[,，\s¥￥]/g,"");
+  if(!s) return NaN;
+  var v = parseFloat(s.replace(/[^\d.\-]/g,""));
+  if(!isFinite(v)) return NaN;
+  return Math.round(v * 100);
+}
+function initial(name){
+  var s = String(name || "").trim();
+  if(!s) return "?";
+  return /[a-zA-Z]/.test(s.charAt(0)) ? s.charAt(0).toUpperCase() : s.charAt(0);
+}
+
+var toastTimer = null;
+// actionLabel / actionFn 可选：给提示条挂一个操作按钮（用于"撤销"）
+function toast(msg, actionLabel, actionFn, duration){
+  var t = document.getElementById("toast");
+  t.innerHTML = '<span class="tmsg"></span>' + (actionLabel ? '<button class="toastbtn"></button>' : '');
+  t.querySelector(".tmsg").textContent = msg;
+  if(actionLabel){
+    var btn = t.querySelector(".toastbtn");
+    btn.textContent = actionLabel;
+    btn.onclick = function(){
+      clearTimeout(toastTimer);
+      t.classList.remove("on");
+      if(actionFn) actionFn();
+    };
+  }
+  t.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ t.classList.remove("on"); },
+    duration || (actionLabel ? 3400 : 1900));
+}
+
+/* ================= 数据层 ================= */
+/*
+ * 持久化策略（针对手机浏览器后台被杀的问题）：
+ *   1. 每次改动立即同步写入 localStorage —— 不依赖 beforeunload（移动端基本不触发）
+ *   2. 主存 KEY + 备份 KEY_BK 双写，两处都校验
+ *   3. 启动时若主存损坏/为空，自动从备份恢复
+ *   4. 切后台/页面隐藏时（visibilitychange、pagehide、freeze）再强制同步一次
+ *   5. 写入后读回比对，确认真的落盘
+ */
+var KEY      = "pl_tracker_v1";
+var KEY_BK   = KEY + "_bak";     // 备份槽
+var KEY_TS   = KEY + "_ts";      // 上次成功写入的时间戳
+
+var state = { version: 1, members: [], records: [] };
+var storageOK = true;
+
+// 校验一份解析出来的数据是不是合法结构
+function validState(d){
+  return !!d && typeof d === "object"
+      && Array.isArray(d.members) && Array.isArray(d.records);
+}
+// 读一个槽位并解析，失败返回 null
+function readSlot(k){
+  try{
+    var raw = localStorage.getItem(k);
+    if(!raw) return null;
+    var d = JSON.parse(raw);
+    return validState(d) ? d : null;
+  }catch(e){ return null; }
+}
+function slotSize(k){
+  try{ return (localStorage.getItem(k) || "").length; }catch(e){ return 0; }
+}
+
+function load(){
+  // 探测 localStorage 是否可用
+  try{
+    localStorage.setItem(KEY + "_t","1");
+    localStorage.removeItem(KEY + "_t");
+    storageOK = true;
+  }catch(e){
+    storageOK = false;
+    return;
+  }
+
+  var main = readSlot(KEY);
+  var bak  = readSlot(KEY_BK);
+
+  if(main){
+    state.members = main.members;
+    state.records = main.records;
+    // 主存正常但备份缺失/更旧 —— 补一次备份
+    if(!bak) writeSlots();
+    return;
+  }
+  if(bak){
+    // 主存损坏或被系统清掉，用备份兜底
+    state.members = bak.members;
+    state.records = bak.records;
+    writeSlots();
+    setTimeout(function(){ toast("已从本地备份恢复数据"); }, 900);
+    return;
+  }
+  // 两处都空：可能真是首次使用，也可能是被清了
+  // 用"曾经写过"的痕迹判断一下，给出提示
+  var had = false;
+  try{ had = !!localStorage.getItem(KEY_TS); }catch(e){}
+  if(had){
+    setTimeout(function(){ toast("本地数据似乎被系统清理了，请用「导入备份」恢复"); }, 900);
+  }
+}
+
+// 双写 + 回读校验
+function writeSlots(){
+  var s = "";
+  try{ s = JSON.stringify(state); }
+  catch(e){ return false; }
+
+  var okMain = false, okBak = false;
+  try{
+    localStorage.setItem(KEY, s);
+    okMain = localStorage.getItem(KEY) === s;
+  }catch(e){ okMain = false; }
+  try{
+    localStorage.setItem(KEY_BK, s);
+    okBak = localStorage.getItem(KEY_BK) === s;
+  }catch(e){ okBak = false; }
+  try{ localStorage.setItem(KEY_TS, String(Date.now())); }catch(e){}
+
+  if(!okMain && !okBak){
+    storageOK = false;
+    return false;
+  }
+  // 主存写失败但备份成功 → 用备份回填主存，保证下次启动正常
+  if(!okMain && okBak){
+    try{ localStorage.setItem(KEY, s); }catch(e){}
+  }
+  storageOK = true;
+  return true;
+}
+
+var saveWarned = false;
+function save(){
+  if(!storageOK){
+    if(!saveWarned){
+      saveWarned = true;
+      toast("保存失败：浏览器本地存储不可用");
+    }
+    return;
+  }
+  if(!writeSlots() && !saveWarned){
+    saveWarned = true;
+    toast("保存失败：存储空间可能已满，建议导出备份");
+  }
+  // 主存内容比备份短很多，说明主存被清了：立刻重建
+  if(slotSize(KEY) < slotSize(KEY_BK) / 2 && slotSize(KEY_BK) > 0){
+    try{ localStorage.setItem(KEY, localStorage.getItem(KEY_BK)); }catch(e){}
+  }
+}
+
+// 页面隐藏/切后台/即将被回收时，再同步一次（移动端的关键保命动作）
+function flushNow(){
+  if(!storageOK){ // 存储不可用，把当前数据塞进备份槽再试一次
+    try{
+      localStorage.setItem(KEY + "_t","1");
+      localStorage.removeItem(KEY + "_t");
+      storageOK = true;
+    }catch(e){ return; }
+  }
+  writeSlots();
+}
+document.addEventListener("visibilitychange", function(){
+  if(document.visibilityState === "hidden") flushNow();
+});
+window.addEventListener("pagehide", flushNow);
+window.addEventListener("freeze", flushNow);
+// iOS/旧 WebView 的兜底（移动端常常不触发，但无害）
+window.addEventListener("beforeunload", flushNow);
+function memberMap(){
+  var m = {};
+  for(var i=0;i<state.members.length;i++) m[state.members[i].id] = state.members[i];
+  return m;
+}
+function totals(){
+  var t = { profit: 0, loss: 0, net: 0, count: state.records.length };
+  var per = {};
+  for(var i=0;i<state.members.length;i++) per[state.members[i].id] = { sum: 0, n: 0 };
+  for(var j=0;j<state.records.length;j++){
+    var r = state.records[j];
+    if(r.amount > 0) t.profit += r.amount; else t.loss += r.amount;
+    t.net += r.amount;
+    if(per[r.memberId]){ per[r.memberId].sum += r.amount; per[r.memberId].n++; }
+  }
+  t.per = per;
+  return t;
+}
+
+/* ================= 视图状态 ================= */
+var ui = { tab: "overview", sort: 0, filterMember: null };
+
+/* ================= 渲染 ================= */
+var view = document.getElementById("view");
+var pageTitle = document.getElementById("pageTitle");
+var pageSub = document.getElementById("pageSub");
+
+function render(scrollTop){
+  var tabs = document.querySelectorAll("#tabbar button");
+  for(var i=0;i<tabs.length;i++) tabs[i].classList.toggle("on", tabs[i].dataset.tab === ui.tab);
+  // 设置页不需要"记一笔"按钮
+  var fab = document.querySelector(".fab");
+  if(fab) fab.style.display = (ui.tab === "settings") ? "none" : "";
+  if(ui.tab === "overview") renderOverview();
+  else if(ui.tab === "records") renderRecords();
+  else renderSettings();
+  // 只在切换页面时回顶，避免在主页点 ＋/－ 记账时把滚动位置弹回去
+  if(scrollTop) window.scrollTo(0, 0);
+}
+
+/* 总账是否平衡：零和场景（打牌/分账/分成）下所有成员盈亏相加应正好为 0 */
+function balanceState(t){
+  return { ok: t.net === 0, diff: t.net };
+}
+function balanceBar(t){
+  if(!t.count) return "";
+  var b = balanceState(t);
+  return '<div class="balancebar' + (b.ok ? "" : " warn") + '" data-act="balance-detail">'
+       +   '<span class="bic">' + (b.ok ? "✓" : "!") + '</span>'
+       +   '<span class="bt">' + (b.ok ? "总账平衡 · 收支相抵" : "总账未平 · 差额") + '</span>'
+       +   '<span class="bv">' + (b.ok ? "0.00" : moneySign(b.diff)) + '</span>'
+       + '</div>';
+}
+
+function renderOverview(){
+  var t = totals();
+  pageTitle.textContent = "盈亏记账";
+  var netColor = t.net > 0 ? "profit" : (t.net < 0 ? "loss" : "muted");
+  pageSub.innerHTML = t.count
+    ? '<b style="color:var(--' + netColor + ')">' + moneySign(t.net) + '</b>净盈亏'
+    : "";
+
+  var html = '';
+  html += '<div class="stats">'
+       +  '<div class="label">总净盈亏</div>'
+       +  '<div class="big ' + cls(t.net) + '">' + (t.count ? moneySign(t.net) : "0.00") + '</div>'
+       +  '<div class="hint">' + state.members.length + ' 人 · ' + t.count + ' 笔记录</div>'
+       +  '<div class="row">'
+       +    '<div><div class="k">累计盈利</div><div class="v" style="color:var(--profit)">' + money(t.profit) + '</div></div>'
+       +    '<div><div class="k">累计亏损</div><div class="v" style="color:var(--loss)">' + money(t.loss) + '</div></div>'
+       +  '</div>'
+       +  balanceBar(t)
+       + '</div>';
+
+  if(state.members.length === 0){
+    html += '<div class="empty" style="padding:44px 24px"><span class="ic">👥</span>还没有成员<br>'
+         +  '<button class="btn" style="max-width:210px;margin:18px auto 0" data-act="add-member">添加第一位成员</button></div>';
+    view.innerHTML = html;
+    return;
+  }
+
+  // 排序
+  var list = state.members.slice();
+  if(ui.sort === 1) list.sort(function(a,b){ return t.per[b.id].sum - t.per[a.id].sum; });
+  else if(ui.sort === 2) list.sort(function(a,b){ return a.name.localeCompare(b.name, "zh-CN"); });
+  var sortName = ["添加顺序","盈亏高低","姓名"][ui.sort];
+
+  html += '<div class="sec-title"><span>成员盈亏</span>'
+       +  '<span class="secbtns">'
+       +    '<button class="btn-mini" data-act="sort">⇅ ' + sortName + '</button>'
+       +    '<button class="btn-mini" data-act="add-member" title="添加成员">＋ 成员</button>'
+       +  '</span></div>';
+  html += '<div class="card">';
+  for(var i=0;i<list.length;i++){
+    var m = list[i], p = t.per[m.id] || {sum:0,n:0};
+    html += '<div class="mrow" data-act="filter-member" data-id="' + m.id + '">'
+         +    '<div class="avatar" style="background:' + m.color + '">' + esc(initial(m.name)) + '</div>'
+         +    '<div class="minfo"><div class="nm">' + esc(m.name) + '</div>'
+         +      '<div class="mt">' + p.n + ' 笔记录</div></div>'
+         +    '<div class="mval"><div class="a ' + cls(p.sum) + '">' + (p.n ? moneySign(p.sum) : "--") + '</div></div>'
+         +    '<div class="macts">'
+         +      '<button class="plus" data-act="quick" data-id="' + m.id + '" data-sign="1" aria-label="给' + esc(m.name) + '记盈利">'
+         +        '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>'
+         +      '<button class="minus" data-act="quick" data-id="' + m.id + '" data-sign="-1" aria-label="给' + esc(m.name) + '记亏损">'
+         +        '<svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>'
+         +    '</div>'
+         +  '</div>';
+  }
+  html += '</div>';
+  html += '<div class="footer">数据保存在本机浏览器中<br>建议定期用「设置 → 导出备份」留存一份</div>';
+  view.innerHTML = html;
+}
+
+function renderRecords(){
+  pageTitle.textContent = "流水";
+  var recs = state.records.slice();
+  if(ui.filterMember) recs = recs.filter(function(r){ return r.memberId === ui.filterMember; });
+  pageSub.innerHTML = '<b>' + recs.length + '</b>笔';
+  pageSub.style.color = "";
+
+  var mm = memberMap();
+  var html = "";
+
+  if(ui.filterMember && mm[ui.filterMember]){
+    html += '<div class="filterbar">只看：<b>' + esc(mm[ui.filterMember].name) + '</b>'
+         +  '<button class="x" data-act="clear-filter">清除 ✕</button></div>';
+  }
+
+  if(recs.length === 0){
+    html += '<div class="empty"><span class="ic">📋</span>'
+         +  (ui.filterMember ? "该成员还没有记录" : "还没有任何记录<br>点右下角 <span class=\"hl\">＋</span> 记一笔")
+         +  '</div>';
+    view.innerHTML = html;
+    return;
+  }
+
+  recs.sort(function(a,b){
+    if(a.date !== b.date) return a.date < b.date ? 1 : -1;
+    return (b.createdAt || 0) - (a.createdAt || 0);
+  });
+
+  var groups = [], cur = null;
+  for(var i=0;i<recs.length;i++){
+    var r = recs[i];
+    if(!cur || cur.date !== r.date){ cur = { date: r.date, items: [], sum: 0 }; groups.push(cur); }
+    cur.items.push(r);
+    cur.sum += r.amount;
+  }
+
+  for(var g=0; g<groups.length; g++){
+    var grp = groups[g];
+    html += '<div class="daygrp"><div class="dayhd"><span>' + fmtDate(grp.date) + '</span>'
+         +  '<span class="dsum ' + cls(grp.sum) + '" style="color:var(--' + (grp.sum>0?"profit":grp.sum<0?"loss":"muted") + ')">'
+         +  moneySign(grp.sum) + '</span></div><div class="card">';
+    for(var k=0;k<grp.items.length;k++){
+      var it = grp.items[k];
+      var mb = mm[it.memberId];
+      html += '<div class="rec" data-act="rec-menu" data-id="' + it.id + '">'
+           +    '<div class="dot" style="background:' + (mb ? mb.color : "#8b93a3") + '"></div>'
+           +    '<div class="rinfo"><div class="rn">' + esc(mb ? mb.name : "已删除成员") + '</div>'
+           +      (it.note ? '<div class="rt">' + esc(it.note) + '</div>' : '') + '</div>'
+           +    '<div class="rv ' + cls(it.amount) + '">' + moneySign(it.amount) + '</div>'
+           +  '</div>';
+    }
+    html += '</div></div>';
+  }
+  html += '<div class="footer">轻点任一记录可编辑或删除</div>';
+  view.innerHTML = html;
+}
+
+function renderSettings(){
+  pageTitle.textContent = "设置";
+  pageSub.innerHTML = "";
+  var t = totals();
+  var html = "";
+
+  html += '<div class="sec-title"><span>成员管理</span>'
+       +  '<button class="btn-mini" data-act="add-member">＋ 添加成员</button></div>';
+
+  if(state.members.length === 0){
+    html += '<div class="empty" style="padding:34px 20px"><span class="ic">👤</span>还没有成员</div>';
+  }else{
+    html += '<div class="card">';
+    for(var i=0;i<state.members.length;i++){
+      var m = state.members[i], p = t.per[m.id] || {sum:0,n:0};
+      html += '<div class="listrow">'
+           +    '<div class="avatar" style="background:' + m.color + ';width:34px;height:34px;flex:0 0 34px;border-radius:10px;font-size:15px">' + esc(initial(m.name)) + '</div>'
+           +    '<div class="nm">' + esc(m.name) + '</div>'
+           +    '<div class="sm">' + p.n + ' 笔</div>'
+           +    '<button class="iconbtn" data-act="rename-member" data-id="' + m.id + '">改名</button>'
+           +    '<button class="iconbtn amber" data-act="clear-member" data-id="' + m.id + '">清零</button>'
+           +    '<button class="iconbtn warn" data-act="del-member" data-id="' + m.id + '">删除</button>'
+           +  '</div>';
+    }
+    html += '</div>';
+  }
+
+  var step = getStep();
+  var presets = [100, 500, 1000, 10000];   // 1 / 5 / 10 / 100 元
+  html += '<div class="sec-title"><span>主页 ＋/－ 快捷记账</span>'
+       +  '<span class="btn-mini">每次 ' + money(step) + ' 元</span></div>'
+       +  '<div class="card" style="padding-top:15px"><div class="stepbtns">'
+       +    presets.map(function(v){
+              return '<button class="stepbtn' + (v === step ? " on" : "") + '" data-act="set-step" data-v="' + (v / 100) + '">' + (v / 100) + ' 元</button>';
+            }).join("")
+       +    '<button class="stepbtn' + (presets.indexOf(step) === -1 ? " on" : "") + '" data-act="set-step-custom">自定义</button>'
+       +  '</div></div>';
+
+  html += '<div class="sec-title"><span>数据</span></div><div class="card">'
+       +  '<div class="listrow" data-act="copy-summary"><div class="ico" style="width:22px;text-align:center">📋</div><div class="nm">复制汇总文本</div><div class="sm">发给群里</div></div>'
+       +  '<div class="listrow" data-act="export-csv"><div class="ico" style="width:22px;text-align:center">📊</div><div class="nm">导出 CSV 表格</div><div class="sm">Excel 可打开</div></div>'
+       +  '<div class="listrow" data-act="export-json"><div class="ico" style="width:22px;text-align:center">💾</div><div class="nm">导出备份文件</div><div class="sm">可再导入</div></div>'
+       +  '<div class="listrow" data-act="import-json"><div class="ico" style="width:22px;text-align:center">📥</div><div class="nm">导入备份</div><div class="sm">JSON</div></div>'
+       + '</div>';
+
+  html += '<div class="sec-title"><span>一键清除</span></div><div class="card">'
+       +  '<div class="listrow" data-act="clear-records" style="color:var(--warn)">'
+       +    '<div class="ico" style="width:22px;text-align:center">🧹</div>'
+       +    '<div class="nm">清空全部记录</div><div class="sm">保留成员</div></div>'
+       +  '<div class="listrow" data-act="clear-all" style="color:var(--profit)">'
+       +    '<div class="ico" style="width:22px;text-align:center">🗑️</div>'
+       +    '<div class="nm">清空所有数据</div><div class="sm">含成员</div></div>'
+       + '</div>';
+
+  html += '<div style="margin-top:22px" class="hintbox">'
+       +  '<b style="color:var(--text)">关于数据</b><br>'
+       +  '所有记录只存在这台设备的浏览器里，不会上传到任何服务器。'
+       +  '换设备或清理浏览器数据前，请先「导出备份文件」。</div>';
+
+  html += '<div class="footer">盈亏记账 · 单文件离线版 v1.0</div>';
+  view.innerHTML = html;
+}
+
+/* ================= 弹层 ================= */
+var maskEl = document.getElementById("mask");
+var sheetEl = document.getElementById("sheet");
+var sheetTimer = null;
+
+function openSheet(html){
+  clearTimeout(sheetTimer);
+  sheetEl.innerHTML = '<div class="grab"></div>' + html;
+  maskEl.classList.add("on");
+  document.body.style.overflow = "hidden";
+  if(sheetEl.classList.contains("on")) return;   // 已打开：只换内容，不重播动画
+  // 同步触发入场过渡，不依赖 requestAnimationFrame（页面在后台时 rAF 会被挂起）
+  sheetEl.style.transition = "none";
+  sheetEl.classList.remove("on");                // 回到屏幕外
+  void sheetEl.offsetHeight;                     // 强制应用该状态
+  sheetEl.style.transition = "";                 // 恢复 CSS 过渡
+  void sheetEl.offsetHeight;
+  sheetEl.classList.add("on");                   // 滑入
+}
+function closeSheet(){
+  sheetEl.classList.remove("on");
+  maskEl.classList.remove("on");
+  document.body.style.overflow = "";
+  sheetTimer = setTimeout(function(){
+    if(!sheetEl.classList.contains("on")) sheetEl.innerHTML = "";
+  }, 320);
+}
+function sheetWrap(title, body, footer){
+  return '<h2>' + title + '<button class="close" data-act="close-sheet">✕</button></h2>'
+       + body + (footer || "");
+}
+
+/* ---------- 添加/编辑记录 ---------- */
+function openRecordSheet(recId){
+  var editing = null;
+  if(recId){
+    for(var i=0;i<state.records.length;i++) if(state.records[i].id === recId) editing = state.records[i];
+  }
+  if(state.members.length === 0){
+    toast("请先添加成员");
+    openMemberSheet();
+    return;
+  }
+
+  function hasMember(id){
+    for(var z=0;z<state.members.length;z++) if(state.members[z].id === id) return true;
+    return false;
+  }
+  var lastMember = null;
+  try{ lastMember = localStorage.getItem(KEY + "_lastMember"); }catch(e){}
+  var memberId = editing ? editing.memberId
+    : (hasMember(lastMember) ? lastMember : state.members[0].id);
+  var sign = editing ? (editing.amount < 0 ? -1 : 1) : 1;
+  if(!editing){
+    try{
+      if(localStorage.getItem(KEY + "_lastSign") === "-1") sign = -1;
+    }catch(e){}
+  }
+
+  var amtVal = editing ? (Math.abs(editing.amount)/100).toFixed(2).replace(/\.00$/,"") : "";
+
+  var pills = state.members.map(function(m){
+    return '<button type="button" class="pill' + (m.id === memberId ? " on" : "") + '" data-pick="' + m.id + '">'
+         + '<span class="pdot" style="background:' + m.color + '"></span>' + esc(m.name) + '</button>';
+  }).join("");
+
+  var body =
+      '<div class="flabel">成员</div>'
+    + '<div class="pills" id="fMember">' + pills + '</div>'
+    + '<div class="flabel">类型</div>'
+    + '<div class="seg" id="fSign">'
+    +   '<button type="button" data-sign="1" class="' + (sign>0?"on":"") + '">盈利 ＋</button>'
+    +   '<button type="button" data-sign="-1" class="' + (sign<0?"on":"") + '">亏损 －</button>'
+    + '</div>'
+    + '<div class="flabel">金额</div>'
+    + '<div class="amountbox ' + (sign > 0 ? "profit" : "loss") + '" id="fAmountBox">'
+    +   '<input id="fAmount" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" value="' + amtVal + '">'
+    +   '<div class="unit">单位：元</div>'
+    + '</div>'
+    + '<div class="flabel">备注（可选）</div>'
+    + '<input id="fNote" type="text" maxlength="40" placeholder="例如：打牌、项目分成" value="' + esc(editing ? (editing.note || "") : "") + '">'
+    + '<div class="flabel">日期</div>'
+    + '<input id="fDate" type="date" value="' + esc(editing ? editing.date : todayStr()) + '">';
+
+  var footer = '<div style="margin-top:20px">'
+    + '<button class="btn" data-act="save-record" data-id="' + (recId || "") + '">保存</button>'
+    + (editing ? '<button class="btn danger" data-act="del-record" data-id="' + recId + '">删除这笔</button>' : '')
+    + '</div>';
+
+  openSheet(sheetWrap(editing ? "编辑记录" : "记一笔", body, footer));
+  setTimeout(function(){
+    var a = document.getElementById("fAmount");
+    if(a) a.focus();
+  }, 320);
+}
+
+/* ---------- 成员 ---------- */
+function openMemberSheet(){
+  var body = '<div class="flabel">成员名字</div>'
+    + '<input id="mName" type="text" maxlength="12" placeholder="例如：张三" autocomplete="off">'
+    + '<div class="flabel">头像颜色</div>'
+    + '<div class="pills" id="mColor">'
+    + PALETTE.map(function(c, i){
+        return '<button type="button" class="pill' + (i===0?" on":"") + '" data-color="' + c + '" style="padding:11px 14px">'
+             + '<span class="pdot" style="background:' + c + ';width:14px;height:14px"></span></button>';
+      }).join("")
+    + '</div>';
+  var footer = '<div style="margin-top:20px"><button class="btn" data-act="save-member">添加成员</button></div>';
+  openSheet(sheetWrap("添加成员", body, footer));
+  setTimeout(function(){
+    var n = document.getElementById("mName");
+    if(n) n.focus();
+  }, 320);
+}
+
+/* ---------- 记录操作菜单 ---------- */
+function openRecMenu(id){
+  var r = null;
+  for(var i=0;i<state.records.length;i++) if(state.records[i].id === id) r = state.records[i];
+  if(!r) return;
+  var mm = memberMap();
+  var mb = mm[r.memberId];
+  var body = '<div class="hintbox" style="margin-bottom:14px">'
+      + '<b style="color:var(--text)">' + esc(mb ? mb.name : "已删除成员") + '</b> · '
+      + '<span style="color:var(--' + (r.amount>0?"profit":r.amount<0?"loss":"muted") + ')">' + moneySign(r.amount) + '</span><br>'
+      + fmtDate(r.date) + (r.note ? ' · ' + esc(r.note) : '') + '</div>'
+      + '<div data-act="edit-record" data-id="' + r.id + '" class="sheetrow"><div class="ico">✏️</div><div>编辑这笔</div></div>'
+      + '<div data-act="del-record" data-id="' + r.id + '" class="sheetrow danger"><div class="ico">🗑️</div><div>删除这笔</div></div>';
+  openSheet(sheetWrap("记录操作", body, ""));
+}
+
+/* ---------- 总账对账 ---------- */
+function openBalanceSheet(){
+  var t = totals();
+  var b = balanceState(t);
+  var body = "";
+
+  body += '<div class="balbox">'
+       +   '<div class="brow"><span>累计盈利（收）</span><b class="pos">' + (t.profit ? "+" + money(t.profit) : "0.00") + '</b></div>'
+       +   '<div class="brow"><span>累计亏损（支）</span><b class="neg">' + (t.loss ? "-" + money(t.loss) : "0.00") + '</b></div>'
+       +   '<div class="brow tot"><span>账目合计</span><b>' + moneySign(t.net) + '</b></div>'
+       + '</div>';
+
+  if(b.ok){
+    body += '<div class="verdict ok"><b>✓ 总账平衡</b>'
+         +  '<span>全部成员的盈亏相加正好为 0，收入与支出完全相抵。</span></div>';
+  }else{
+    body += '<div class="verdict warn"><b>差额 ' + moneySign(b.diff) + ' 元</b>'
+         +  '<span>' + (b.diff > 0 ? "盈利比亏损多 " : "亏损比盈利多 ") + money(b.diff) + ' 元，'
+         +  '说明有人的份额没记全，或者某个金额输错了。</span></div>';
+  }
+
+  var list = state.members.slice().sort(function(a, c){ return t.per[c.id].sum - t.per[a.id].sum; });
+  body += '<div class="flabel">成员明细</div><div class="card">';
+  for(var i=0;i<list.length;i++){
+    var m = list[i], p = t.per[m.id];
+    body += '<div class="listrow">'
+         +   '<div class="avatar" style="background:' + m.color + ';width:32px;height:32px;flex:0 0 32px;border-radius:9px;font-size:14px">'
+         +     esc(initial(m.name)) + '</div>'
+         +   '<div class="nm">' + esc(m.name) + '</div>'
+         +   '<div class="sm">' + p.n + ' 笔</div>'
+         +   '<span class="amt ' + cls(p.sum) + '">' + (p.n ? moneySign(p.sum) : "0.00") + '</span>'
+         + '</div>';
+  }
+  body += '</div>';
+
+  // 不平的时候按日期列出，方便定位是哪天漏记
+  if(!b.ok){
+    var byDate = {};
+    for(var j=0;j<state.records.length;j++){
+      var r = state.records[j];
+      byDate[r.date] = (byDate[r.date] || 0) + r.amount;
+    }
+    var dates = Object.keys(byDate).sort().reverse();
+    body += '<div class="flabel">按日期看</div><div class="card">';
+    for(var d=0;d<dates.length;d++){
+      var v = byDate[dates[d]];
+      body += '<div class="listrow"><div class="nm">' + fmtDate(dates[d]) + '</div>'
+           +   '<span class="amt ' + cls(v) + '">' + moneySign(v) + '</span></div>';
+    }
+    body += '</div>';
+  }
+
+  body += '<div class="hintbox" style="margin-top:16px">'
+       +   '<b style="color:var(--text)">这里说的「平衡」指什么</b><br>'
+       +   '如果这笔账是零和的 —— 打牌、AA 分账、合伙分成，有人赚就一定有人亏 —— '
+       +   '那么所有人的盈亏相加应该正好等于 0。不等于 0，通常说明有人的份额漏记了，或者某个金额输错了。<br><br>'
+       +   '如果你们只是各自记录自己的收益、彼此不相关，那么合计不为 0 是正常的，这一栏忽略即可。'
+       + '</div>';
+
+  openSheet(sheetWrap("总账对账", body, ""));
+}
+
+/* ================= 业务动作 ================= */
+
+/* ---------- 快捷记账：步长 ---------- */
+var STEP_KEY = KEY + "_step";
+function getStep(){
+  var v = 0;
+  try{ v = parseInt(localStorage.getItem(STEP_KEY), 10); }catch(e){}
+  return (isFinite(v) && v > 0) ? v : 100;   // 默认 1.00 元
+}
+function setStep(cents){
+  try{ localStorage.setItem(STEP_KEY, String(cents)); }catch(e){}
+}
+
+/* ---------- 主页 ＋/－ 直接记账，不弹界面 ---------- */
+function quickRecord(memberId, sign){
+  var m = null;
+  for(var i=0;i<state.members.length;i++) if(state.members[i].id === memberId) m = state.members[i];
+  if(!m) return;
+
+  var amount = (sign < 0 ? -1 : 1) * getStep();
+  var rec = {
+    id: uid(), memberId: memberId, amount: amount,
+    note: "", date: todayStr(), createdAt: Date.now()
+  };
+  state.records.push(rec);
+  save();
+  render();
+  // 省掉了确认步骤，所以给一次后悔的机会
+  toast(m.name + " " + moneySign(amount), "撤销", function(){
+    state.records = state.records.filter(function(x){ return x.id !== rec.id; });
+    save(); render();
+    toast("已撤销");
+  });
+}
+function saveRecord(id){
+  var amountEl = document.getElementById("fAmount");
+  var noteEl = document.getElementById("fNote");
+  var dateEl = document.getElementById("fDate");
+  var signEl = document.querySelector("#fSign button.on");
+  var memberEl = document.querySelector("#fMember .pill.on");
+  if(!amountEl || !signEl || !memberEl){ return; }
+
+  var cents = parseAmount(amountEl.value);
+  if(isNaN(cents) || cents === 0){
+    toast("请输入有效金额");
+    amountEl.focus();
+    return;
+  }
+  var sign = parseInt(signEl.dataset.sign, 10) || 1;
+  var amount = sign * Math.abs(cents);
+  var date = dateEl.value || todayStr();
+  var note = (noteEl.value || "").trim();
+  var memberId = memberEl.dataset.pick;
+
+  if(id){
+    for(var i=0;i<state.records.length;i++){
+      if(state.records[i].id === id){
+        state.records[i].amount = amount;
+        state.records[i].note = note;
+        state.records[i].date = date;
+        state.records[i].memberId = memberId;
+      }
+    }
+    toast("已更新");
+  }else{
+    state.records.push({
+      id: uid(), memberId: memberId, amount: amount,
+      note: note, date: date, createdAt: Date.now()
+    });
+    toast("已记录 " + moneySign(amount));
+  }
+  try{
+    localStorage.setItem(KEY + "_lastMember", memberId);
+    localStorage.setItem(KEY + "_lastSign", String(sign));
+  }catch(e){}
+  save();
+  closeSheet();
+  render();
+}
+
+function delRecord(id){
+  var r = null;
+  for(var i=0;i<state.records.length;i++) if(state.records[i].id === id) r = state.records[i];
+  if(!r) return;
+  if(!confirm("确定删除这笔记录？\n" + moneySign(r.amount) + (r.note ? " · " + r.note : "") + "\n\n删除后无法恢复。")) return;
+  state.records = state.records.filter(function(x){ return x.id !== id; });
+  save(); closeSheet(); render();
+  toast("已删除");
+}
+
+function saveMember(){
+  var nameEl = document.getElementById("mName");
+  var colorEl = document.querySelector("#mColor .pill.on");
+  var name = (nameEl.value || "").trim();
+  if(!name){ toast("请输入名字"); nameEl.focus(); return; }
+  if(state.members.some(function(m){ return m.name === name; })){ toast("已有同名成员"); return; }
+  state.members.push({
+    id: uid(), name: name,
+    color: (colorEl && colorEl.dataset.color) || PALETTE[state.members.length % PALETTE.length]
+  });
+  save(); closeSheet(); render();
+  toast("已添加 " + name);
+}
+
+function renameMember(id){
+  var m = null;
+  for(var i=0;i<state.members.length;i++) if(state.members[i].id === id) m = state.members[i];
+  if(!m) return;
+  var name = prompt("修改成员名字：", m.name);
+  if(name === null) return;
+  name = name.trim();
+  if(!name){ toast("名字不能为空"); return; }
+  if(state.members.some(function(x){ return x.name === name && x.id !== id; })){ toast("已有同名成员"); return; }
+  m.name = name;
+  save(); closeSheet(); render();
+  toast("已改名");
+}
+
+function delMember(id){
+  var m = null;
+  for(var i=0;i<state.members.length;i++) if(state.members[i].id === id) m = state.members[i];
+  if(!m) return;
+  var n = state.records.filter(function(r){ return r.memberId === id; }).length;
+  var msg = "删除成员「" + m.name + "」？" + (n ? "\n\n该成员的 " + n + " 笔记录也会一起删除，无法恢复。" : "");
+  if(!confirm(msg)) return;
+  state.members = state.members.filter(function(x){ return x.id !== id; });
+  state.records = state.records.filter(function(r){ return r.memberId !== id; });
+  if(ui.filterMember === id) ui.filterMember = null;
+  save(); render();
+  toast("已删除");
+}
+
+/* ================= 导入导出 ================= */
+function diffy(ext, text){
+  var name = "盈亏记账_" + todayStr() + "." + ext;
+  try{
+    if(navigator.canShare && window.File){
+      var f = new File([text], name, { type: "text/plain" });
+      if(navigator.canShare({ files: [f] })){
+        navigator.share({ files: [f], title: name }).catch(function(){ fallbackDownload(text, name); });
+        return;
+      }
+    }
+  }catch(e){}
+  fallbackDownload(text, name);
+}
+function fallbackDownload(text, name){
+  try{
+    var blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 500);
+    toast("已导出 " + name);
+  }catch(e){
+    toast("导出失败，请用浏览器菜单保存");
+  }
+}
+
+function exportJSON(){
+  if(!state.members.length && !state.records.length){ toast("暂无数据"); return; }
+  diffy("json", JSON.stringify(state, null, 2));
+}
+function exportCSV(){
+  if(!state.records.length){ toast("暂无记录"); return; }
+  var mm = memberMap();
+  var rows = [["日期","成员","备注","金额(元)"]];
+  var recs = state.records.slice().sort(function(a,b){ return a.date < b.date ? -1 : 1; });
+  for(var i=0;i<recs.length;i++){
+    var r = recs[i];
+    rows.push([r.date, (mm[r.memberId] ? mm[r.memberId].name : "已删除成员"), r.note || "", (r.amount/100).toFixed(2)]);
+  }
+  var t = totals();
+  rows.push([]);
+  rows.push(["合计","","", (t.net/100).toFixed(2)]);
+  var csv = "\ufeff" + rows.map(function(row){
+    return row.map(function(c){ return '"' + String(c).replace(/"/g, '""') + '"'; }).join(",");
+  }).join("\r\n");
+  diffy("csv", csv);
+}
+
+function summaryText(){
+  var t = totals();
+  if(!state.members.length) return "暂无成员数据";
+  var list = state.members.slice().sort(function(a,b){ return t.per[b.id].sum - t.per[a.id].sum; });
+  var lines = ["【盈亏汇总】" + todayStr(), "总净盈亏：" + moneySign(t.net) + " 元", ""];
+  for(var i=0;i<list.length;i++){
+    var m = list[i], p = t.per[m.id];
+    // 必须用 moneySign：money() 会取绝对值，会让亏损丢掉负号
+    lines.push((i+1) + ". " + m.name + "：" + (p.n ? moneySign(p.sum) : "0.00") + " 元 (" + p.n + "笔)");
+  }
+  return lines.join("\n");
+}
+function copySummary(){
+  var txt = summaryText();
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){ toast("已复制，可粘贴到群里"); },
+      function(){ manualCopy(txt); });
+  }else manualCopy(txt);
+}
+function manualCopy(txt){
+  var ta = document.createElement("textarea");
+  ta.value = txt;
+  ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  try{ document.execCommand("copy"); toast("已复制"); }
+  catch(e){ prompt("长按复制以下内容：", txt); }
+  document.body.removeChild(ta);
+}
+
+function importJSON(){
+  var inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".json,application/json";
+  inp.onchange = function(){
+    var f = inp.files && inp.files[0];
+    if(!f) return;
+    var fr = new FileReader();
+    fr.onload = function(){
+      var d;
+      try{ d = JSON.parse(fr.result); }
+      catch(e){ toast("文件格式不正确"); return; }
+      if(!d || !Array.isArray(d.members) || !Array.isArray(d.records)){ toast("不是有效的备份文件"); return; }
+      var mine = state.records.length + state.members.length;
+      var msg = mine
+        ? "当前已有 " + state.members.length + " 人 / " + state.records.length + " 笔记录。\n\n"
+          + "点「确定」= 用备份完全覆盖\n点「取消」= 与现有数据合并"
+        : "导入备份？";
+      var mode = confirm(msg) ? "replace" : "merge";
+      if(mode === "replace"){
+        state.members = d.members;
+        state.records = d.records;
+      }else{
+        var seen = {};
+        state.members.forEach(function(m){ seen[m.id] = true; });
+        d.members.forEach(function(m){
+          if(!seen[m.id]){ seen[m.id] = true; state.members.push(m); }
+        });
+        var seenR = {};
+        state.records.forEach(function(r){ seenR[r.id] = true; });
+        d.records.forEach(function(r){ if(!seenR[r.id]) state.records.push(r); });
+      }
+      save(); closeSheet(); render();
+      toast("导入完成：" + state.members.length + " 人 / " + state.records.length + " 笔");
+    };
+    fr.readAsText(f);
+  };
+  inp.click();
+}
+
+/* ---------- 一键清除（都可撤销） ---------- */
+
+// 清空全部记录，保留成员名单 —— 适合"这轮结束，下轮还是这批人"
+function clearRecords(){
+  var n = state.records.length;
+  if(!n){ toast("还没有任何记录"); return; }
+  if(!confirm("清空全部 " + n + " 笔记录？\n\n成员名单会保留，方便接着用。\n清空后 8 秒内可撤销。")) return;
+  var backup = state.records.slice();
+  state.records = [];
+  if(ui.filterMember) ui.filterMember = null;
+  save(); render(true);
+  toast("已清空 " + n + " 笔记录", "撤销", function(){
+    state.records = backup;
+    save(); render(true);
+    toast("已恢复 " + backup.length + " 笔记录");
+  }, 8000);
+}
+
+// 清除某一个人的全部记录，成员本身保留
+function clearMember(memberId){
+  var m = null;
+  for(var i=0;i<state.members.length;i++) if(state.members[i].id === memberId) m = state.members[i];
+  if(!m) return;
+  var mine = state.records.filter(function(r){ return r.memberId === memberId; });
+  if(!mine.length){ toast(m.name + " 还没有记录"); return; }
+  if(!confirm("清除「" + m.name + "」的 " + mine.length + " 笔记录？\n\n成员会保留。清除后 8 秒内可撤销。")) return;
+  state.records = state.records.filter(function(r){ return r.memberId !== memberId; });
+  save(); render(true);
+  toast("已清除 " + m.name + " 的 " + mine.length + " 笔记录", "撤销", function(){
+    state.records = state.records.concat(mine);
+    save(); render(true);
+    toast("已恢复");
+  }, 8000);
+}
+
+function clearAll(){
+  if(!state.members.length && !state.records.length){ toast("本来就是空的"); return; }
+  if(!confirm("⚠️ 将删除全部 " + state.members.length + " 位成员和 " + state.records.length + " 笔记录。\n\n强烈建议先导出备份。确定继续？")) return;
+  if(!confirm("最后确认：真的要清空所有数据吗？")) return;
+  var bm = state.members.slice(), br = state.records.slice();
+  state.members = []; state.records = [];
+  ui.filterMember = null;
+  save(); render(true);
+  toast("已清空全部数据", "撤销", function(){
+    state.members = bm; state.records = br;
+    save(); render(true);
+    toast("已恢复 " + bm.length + " 位成员、" + br.length + " 笔记录");
+  }, 8000);
+}
+
+/* ================= 事件委托 ================= */
+document.addEventListener("click", function(e){
+  var el = e.target.closest ? e.target.closest("[data-act]") : null;
+
+  // 表单内选择器（无 data-act，但要单独处理）
+  var pick = e.target.closest("[data-pick]");
+  if(pick){
+    var box = document.getElementById("fMember");
+    if(box){
+      var ps = box.querySelectorAll(".pill");
+      for(var i=0;i<ps.length;i++) ps[i].classList.remove("on");
+      pick.classList.add("on");
+    }
+    return;
+  }
+  var cbtn = e.target.closest("[data-color]");
+  if(cbtn){
+    var cbox = document.getElementById("mColor");
+    if(cbox){
+      var cs = cbox.querySelectorAll(".pill");
+      for(var j=0;j<cs.length;j++) cs[j].classList.remove("on");
+      cbtn.classList.add("on");
+    }
+    return;
+  }
+  var sbtn = e.target.closest("[data-sign]");
+  if(sbtn && sbtn.parentNode && sbtn.parentNode.id === "fSign"){
+    var ss = sbtn.parentNode.querySelectorAll("button");
+    for(var k=0;k<ss.length;k++) ss[k].classList.remove("on");
+    sbtn.classList.add("on");
+    // 金额数字的颜色跟随类型，避免"记反了"却没察觉
+    var abox = document.getElementById("fAmountBox");
+    if(abox){
+      abox.classList.toggle("profit", sbtn.dataset.sign === "1");
+      abox.classList.toggle("loss", sbtn.dataset.sign === "-1");
+    }
+    return;
+  }
+
+  if(!el) return;
+  var act = el.dataset.act;
+
+  if(act === "tab"){ ui.tab = el.dataset.tab; render(true); }
+  else if(act === "add-record"){ openRecordSheet(null); }
+  else if(act === "quick"){
+    // 主页成员行上的 ＋/－：点了直接记账，不弹界面
+    quickRecord(el.dataset.id, parseInt(el.dataset.sign, 10) || 1);
+  }
+  else if(act === "set-step"){
+    setStep(parseAmount(el.dataset.v) || 100);
+    render();
+    toast("每次记 " + money(getStep()) + " 元");
+  }
+  else if(act === "set-step-custom"){
+    var sv = prompt("每次点击记多少元？", money(getStep()).replace(/,/g, ""));
+    if(sv === null) return;
+    var sc = parseAmount(sv);
+    if(isNaN(sc) || sc <= 0){ toast("请输入大于 0 的金额"); return; }
+    setStep(sc);
+    render();
+    toast("每次记 " + money(sc) + " 元");
+  }
+  else if(act === "add-member"){ openMemberSheet(); }
+  else if(act === "close-sheet"){ closeSheet(); }
+  else if(act === "save-record"){ saveRecord(el.dataset.id || null); }
+  else if(act === "del-record"){ delRecord(el.dataset.id); }
+  else if(act === "edit-record"){ closeSheet(); setTimeout(function(){ openRecordSheet(el.dataset.id); }, 60); }
+  else if(act === "rec-menu"){ openRecMenu(el.dataset.id); }
+  else if(act === "balance-detail"){ openBalanceSheet(); }
+  else if(act === "save-member"){ saveMember(); }
+  else if(act === "rename-member"){ renameMember(el.dataset.id); }
+  else if(act === "del-member"){ delMember(el.dataset.id); }
+  else if(act === "clear-member"){ clearMember(el.dataset.id); }
+  else if(act === "clear-records"){ clearRecords(); }
+  else if(act === "sort"){ ui.sort = (ui.sort + 1) % 3; render(); }
+  else if(act === "filter-member"){ ui.filterMember = el.dataset.id; ui.tab = "records"; render(true); }
+  else if(act === "clear-filter"){ ui.filterMember = null; render(); }
+  else if(act === "export-json"){ exportJSON(); }
+  else if(act === "export-csv"){ exportCSV(); }
+  else if(act === "import-json"){ importJSON(); }
+  else if(act === "copy-summary"){ copySummary(); }
+  else if(act === "clear-all"){ clearAll(); }
+});
+
+document.addEventListener("keydown", function(e){
+  if(e.key === "Escape") closeSheet();
+  if(e.key === "Enter" && document.getElementById("sheet").classList.contains("on")){
+    var t = e.target.tagName;
+    if(t === "INPUT"){
+      var saveBtn = sheetEl.querySelector('[data-act="save-record"]');
+      var mBtn = sheetEl.querySelector('[data-act="save-member"]');
+      if(saveBtn) saveBtn.click();
+      else if(mBtn) mBtn.click();
+    }
+  }
+});
+
+/* ================= PWA：让浏览器把它当"应用"而不是"临时文件" =================
+ * 目的：添加到主屏幕后以独立窗口启动，脱离浏览器标签页的后台回收管理。
+ *
+ * 两种部署形态，本函数自动适配：
+ *   A. 发布版（http/https，有配套文件）—— 用同目录下的 manifest.webmanifest / sw.js。
+ *      标准做法，SW 作用域明确，图标与 standalone 模式都可靠。
+ *   B. 本地单文件（双击打开）—— file:// 下 SW 无法注册，直接跳过；
+ *      若在 http 下但拿不到真文件，回落到运行时生成的 Blob 方案做兜底。
+ */
+var ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'
+  + '<rect width="512" height="512" rx="112" fill="#4c8dff"/>'
+  + '<path d="M112 344l88-104 64 56 120-152" fill="none" stroke="#fff" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>'
+  + '</svg>';
+var ICON_URL = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(ICON_SVG)));
+
+var MANIFEST = {
+  name: "盈亏记账",
+  short_name: "盈亏记账",
+  description: "多人盈亏记录，离线可用",
+  start_url: ".",
+  scope: ".",
+  display: "standalone",
+  orientation: "portrait",
+  background_color: "#0e1014",
+  theme_color: "#0e1014",
+  lang: "zh-CN",
+  icons: [
+    { src: ICON_URL, sizes: "192x192", type: "image/svg+xml", purpose: "any" },
+    { src: ICON_URL, sizes: "512x512", type: "image/svg+xml", purpose: "any" },
+    { src: ICON_URL, sizes: "512x512", type: "image/svg+xml", purpose: "maskable" }
+  ]
+};
+
+/* 兜底 SW（仅当没有真 sw.js 时使用）。
+ * 策略：stale-while-revalidate —— 先用缓存立即渲染，后台静默拉新版。
+ * 记账工具"打开快"比"永远最新"重要；改版后第二次打开即生效。 */
+var SW_SOURCE = [
+  'var CACHE = "pl-v1";',
+  'self.addEventListener("install", function(e){ self.skipWaiting(); });',
+  'self.addEventListener("activate", function(e){',
+  '  e.waitUntil(',
+  '    caches.keys().then(function(ks){',
+  '      return Promise.all(ks.map(function(k){ return k === CACHE ? null : caches.delete(k); }));',
+  '    }).then(function(){ return self.clients.claim(); })',
+  '  );',
+  '});',
+  'self.addEventListener("fetch", function(e){',
+  '  if(e.request.method !== "GET") return;',
+  '  e.respondWith(',
+  '    caches.open(CACHE).then(function(c){',
+  '      return c.match(e.request).then(function(hit){',
+  '        var net = fetch(e.request).then(function(res){',
+  '          if(res && res.status === 200 && res.type === "basic"){',
+  '            try{ c.put(e.request, res.clone()); }catch(x){}',
+  '          }',
+  '          return res;',
+  '        }).catch(function(){ return hit; });',
+  '        return hit || net;',
+  '      });',
+  '    })',
+  '  );',
+  '});'
+].join("\n");
+
+// 探测同目录下是否存在真文件（发布版）。
+// 必须绝对安全：fetch 可能不存在（老 WebView），也可能同步抛错。
+function probe(url){
+  if(typeof fetch !== "function") return Promise.resolve(null);
+  try{
+    return fetch(url, { method: "HEAD", cache: "no-store" })
+      .then(function(r){
+        if(!r || !r.ok) return null;
+        var ct = (r.headers && r.headers.get && r.headers.get("content-type")) || "";
+        // 静态服务器对不存在文件的 SPA 回退会返回 HTML，必须排除
+        if(/text\/html/.test(ct)) return null;
+        return url;
+      })
+      .catch(function(){ return null; });
+  }catch(e){
+    return Promise.resolve(null);
+  }
+}
+
+/* setupPWA 全程不得影响主流程启动：
+ * 任何异常都必须被吞掉，绝不能让它阻断后面的 load()/render()。 */
+function setupPWA(){
+  try{
+    // file:// 下 SW 无法注册、manifest 也无意义 —— 整体跳过（不要抛错）
+    if(location.protocol === "file:") return;
+
+    // 1) manifest：优先真文件，取不到再注入 Blob
+    probe("manifest.webmanifest").then(function(url){
+      try{
+        var link = document.createElement("link");
+        link.rel = "manifest";
+        if(url){
+          link.href = url;
+        }else{
+          var mf = new Blob([JSON.stringify(MANIFEST)], { type: "application/manifest+json" });
+          link.href = URL.createObjectURL(mf);
+        }
+        document.head.appendChild(link);
+      }catch(e){}
+    });
+
+    // 2) Service Worker：优先真 sw.js（作用域可靠），否则 Blob 兜底
+    if(!("serviceWorker" in navigator)) return;
+    probe("sw.js").then(function(url){
+      try{
+        var target;
+        if(url){
+          target = url;
+        }else{
+          var swBlob = new Blob([SW_SOURCE], { type: "text/javascript" });
+          target = URL.createObjectURL(swBlob);
+        }
+        navigator.serviceWorker.register(target).catch(function(){});
+      }catch(e){}
+    });
+  }catch(e){}
+}
+
+/* ================= 启动 ================= */
+try{
+  load();
+}catch(e){
+  // load 内部已做容错，这里是最后一道防线：绝不能让它阻断渲染
+  storageOK = false;
+}
+if(!storageOK){
+  setTimeout(function(){ toast("注意：浏览器禁用了本地存储，数据无法保存"); }, 700);
+}
+render();
+
+// PWA 注册放到最后，且整段独立容错 —— 它失败不能影响应用本身
+try{ setupPWA(); }catch(e){}
+
+})();
+</script>
+</body>
+</html>
