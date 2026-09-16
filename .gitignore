@@ -12,3 +12,6 @@ desktop.ini
 *.bak
 *_备份_*.html
 _tmp_*
+
+# gh CLI 在仓库目录留下的本地状态
+.local/
