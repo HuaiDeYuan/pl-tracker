@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="盈亏记账">
 <meta name="format-detection" content="telephone=no">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234c8dff'/%3E%3Cpath d='M14 43l11-13 8 7 15-19' fill='none' stroke='white' stroke-width='5.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.webmanifest" id="manifestLink">
 <title>盈亏记账</title>
 <style>
 :root{
@@ -468,9 +469,17 @@ function toast(msg, actionLabel, actionFn, duration){
 var KEY      = "pl_tracker_v1";
 var KEY_BK   = KEY + "_bak";     // 备份槽
 var KEY_TS   = KEY + "_ts";      // 上次成功写入的时间戳
+var KEY_DRAFT = KEY + "_draft";  // 弹窗未保存草稿槽
 
-var state = { version: 1, members: [], records: [] };
+var state = { version: 1, rev: 0, updatedAt: Date.now(), members: [], records: [] };
+var isDirty = false;
 var storageOK = true;
+
+var IDB_DB_NAME = "pl_tracker_idb";
+var IDB_STORE_NAME = "kv";
+var DATA_CACHE_NAME = "pl-tracker-data-v1";
+var STATE_CACHE_KEY = "./__pl_tracker_state__.json";
+var idbConn = null;
 
 // 校验一份解析出来的数据是不是合法结构
 function validState(d){
@@ -490,7 +499,234 @@ function slotSize(k){
   try{ return (localStorage.getItem(k) || "").length; }catch(e){ return 0; }
 }
 
+function isStrictlyNewer(cand, curr){
+  if(!cand) return false;
+  if(!curr) return true;
+  var cRev = (typeof cand.rev === "number") ? cand.rev : 0;
+  var curRev = (typeof curr.rev === "number") ? curr.rev : 0;
+  if(cRev > curRev) return true;
+  if(cRev < curRev) return false;
+  var cUp = (typeof cand.updatedAt === "number") ? cand.updatedAt : 0;
+  var curUp = (typeof curr.updatedAt === "number") ? curr.updatedAt : 0;
+  return cUp > curUp;
+}
+
+function pickNewerState(a, b){
+  if(!validState(a) && !validState(b)) return null;
+  if(!validState(a)) return b;
+  if(!validState(b)) return a;
+  return isStrictlyNewer(b, a) ? b : a;
+}
+
+function applyState(s){
+  if(!validState(s)) return;
+  state.members = s.members || [];
+  state.records = s.records || [];
+  state.rev = (typeof s.rev === "number") ? s.rev : 0;
+  state.updatedAt = (typeof s.updatedAt === "number") ? s.updatedAt : Date.now();
+}
+
+function initIDB(){
+  if(!("indexedDB" in window)) return;
+  try{
+    var req = indexedDB.open(IDB_DB_NAME, 1);
+    req.onupgradeneeded = function(){
+      var db = req.result;
+      if(!db.objectStoreNames.contains(IDB_STORE_NAME)){
+        db.createObjectStore(IDB_STORE_NAME);
+      }
+    };
+    req.onsuccess = function(){
+      idbConn = req.result;
+    };
+    req.onerror = function(){
+      idbConn = null;
+    };
+  }catch(e){ idbConn = null; }
+}
+
+function readFromIDB(key){
+  return new Promise(function(resolve){
+    if(!("indexedDB" in window)) return resolve(null);
+    function doGet(db){
+      try{
+        var tx = db.transaction([IDB_STORE_NAME], "readonly");
+        var store = tx.objectStore(IDB_STORE_NAME);
+        var req = store.get(key);
+        req.onsuccess = function(){
+          var val = req.result;
+          if(!val) return resolve(null);
+          try{
+            var parsed = (typeof val === "string") ? JSON.parse(val) : val;
+            resolve(validState(parsed) ? parsed : null);
+          }catch(err){ resolve(null); }
+        };
+        req.onerror = function(){ resolve(null); };
+      }catch(e){ resolve(null); }
+    }
+    if(idbConn){
+      doGet(idbConn);
+    }else{
+      try{
+        var req = indexedDB.open(IDB_DB_NAME, 1);
+        req.onupgradeneeded = function(){
+          var db = req.result;
+          if(!db.objectStoreNames.contains(IDB_STORE_NAME)){
+            db.createObjectStore(IDB_STORE_NAME);
+          }
+        };
+        req.onsuccess = function(){
+          idbConn = req.result;
+          doGet(idbConn);
+        };
+        req.onerror = function(){ resolve(null); };
+      }catch(e){ resolve(null); }
+    }
+  });
+}
+
+function readFromCache(){
+  return new Promise(function(resolve){
+    if(!("caches" in window)) return resolve(null);
+    caches.open(DATA_CACHE_NAME).then(function(c){
+      return c.match(STATE_CACHE_KEY).then(function(res){
+        if(!res) return resolve(null);
+        return res.json().then(function(data){
+          resolve(validState(data) ? data : null);
+        }).catch(function(){ resolve(null); });
+      });
+    }).catch(function(){ resolve(null); });
+  });
+}
+
+function syncFromAsyncStores(){
+  Promise.all([readFromIDB(KEY), readFromCache()]).then(function(results){
+    var idbState = results[0];
+    var cacheState = results[1];
+    var bestAsync = pickNewerState(idbState, cacheState);
+    if(!bestAsync) return;
+
+    var localBest = pickNewerState(readSlot(KEY), readSlot(KEY_BK));
+    var currBest = pickNewerState(state, localBest);
+
+    if(isStrictlyNewer(bestAsync, currBest)){
+      applyState(bestAsync);
+      isDirty = false;
+      writeSlots();
+      render();
+    }
+  }).catch(function(){});
+}
+
+function saveFormDraft(){
+  var sEl = document.getElementById("sheet");
+  if(!sEl || !sEl.classList.contains("on")) return;
+  var saveRecBtn = sEl.querySelector('[data-act="save-record"]');
+  var saveMemBtn = sEl.querySelector('[data-act="save-member"]');
+  var draft = null;
+
+  if(saveRecBtn){
+    var amtEl = document.getElementById("fAmount");
+    var noteEl = document.getElementById("fNote");
+    var dateEl = document.getElementById("fDate");
+    var signBtn = document.querySelector("#fSign button.on");
+    var memberPill = document.querySelector("#fMember .pill.on");
+    draft = {
+      type: "record",
+      recId: saveRecBtn.dataset.id || null,
+      memberId: memberPill ? memberPill.dataset.pick : null,
+      sign: signBtn ? (parseInt(signBtn.dataset.sign, 10) || 1) : 1,
+      amountRaw: amtEl ? amtEl.value : "",
+      note: noteEl ? noteEl.value : "",
+      date: dateEl ? dateEl.value : ""
+    };
+  }else if(saveMemBtn){
+    var nameEl = document.getElementById("mName");
+    var colorPill = document.querySelector("#mColor .pill.on");
+    draft = {
+      type: "member",
+      name: nameEl ? nameEl.value : "",
+      color: colorPill ? colorPill.dataset.color : ""
+    };
+  }
+
+  if(draft){
+    try{ localStorage.setItem(KEY_DRAFT, JSON.stringify(draft)); }catch(e){}
+  }
+}
+
+function clearFormDraft(){
+  try{ localStorage.removeItem(KEY_DRAFT); }catch(e){}
+}
+
+function restoreFormDraftIfAny(){
+  var raw = null;
+  try{ raw = localStorage.getItem(KEY_DRAFT); }catch(e){}
+  if(!raw) return;
+  var draft = null;
+  try{ draft = JSON.parse(raw); }catch(e){}
+  if(!draft || typeof draft !== "object") return;
+
+  if(draft.type === "record"){
+    if(!draft.amountRaw && !draft.note && !draft.recId){
+      clearFormDraft();
+      return;
+    }
+    openRecordSheet(draft.recId || null);
+
+    if(draft.memberId){
+      var box = document.getElementById("fMember");
+      if(box){
+        var ps = box.querySelectorAll(".pill");
+        for(var i=0;i<ps.length;i++){
+          if(ps[i].dataset.pick === draft.memberId) ps[i].classList.add("on");
+          else ps[i].classList.remove("on");
+        }
+      }
+    }
+    if(draft.sign){
+      var sbox = document.getElementById("fSign");
+      if(sbox){
+        var sbs = sbox.querySelectorAll("button");
+        for(var j=0;j<sbs.length;j++){
+          sbs[j].classList.toggle("on", sbs[j].dataset.sign === String(draft.sign));
+        }
+      }
+      var abox = document.getElementById("fAmountBox");
+      if(abox){
+        abox.classList.toggle("profit", draft.sign > 0);
+        abox.classList.toggle("loss", draft.sign < 0);
+      }
+    }
+    var amtEl = document.getElementById("fAmount");
+    if(amtEl && draft.amountRaw !== undefined) amtEl.value = draft.amountRaw;
+    var noteEl = document.getElementById("fNote");
+    if(noteEl && draft.note !== undefined) noteEl.value = draft.note;
+    var dateEl = document.getElementById("fDate");
+    if(dateEl && draft.date) dateEl.value = draft.date;
+  }else if(draft.type === "member"){
+    if(!draft.name){
+      clearFormDraft();
+      return;
+    }
+    openMemberSheet();
+    var nameEl = document.getElementById("mName");
+    if(nameEl && draft.name) nameEl.value = draft.name;
+    if(draft.color){
+      var cbox = document.getElementById("mColor");
+      if(cbox){
+        var cs = cbox.querySelectorAll(".pill");
+        for(var k=0;k<cs.length;k++){
+          cs[k].classList.toggle("on", cs[k].dataset.color === draft.color);
+        }
+      }
+    }
+  }
+}
+
 function load(){
+  initIDB();
+
   // 探测 localStorage 是否可用
   try{
     localStorage.setItem(KEY + "_t","1");
@@ -503,22 +739,20 @@ function load(){
 
   var main = readSlot(KEY);
   var bak  = readSlot(KEY_BK);
+  var chosen = pickNewerState(main, bak);
 
-  if(main){
-    state.members = main.members;
-    state.records = main.records;
-    // 主存正常但备份缺失/更旧 —— 补一次备份
-    if(!bak) writeSlots();
+  if(chosen){
+    applyState(chosen);
+    // 主存或备份缺失/比另一份旧 —— 补一次双写
+    if(!main || !bak || isStrictlyNewer(bak, main)){
+      writeSlots();
+    }
+    if(!main && bak){
+      setTimeout(function(){ toast("已从本地备份恢复数据"); }, 900);
+    }
     return;
   }
-  if(bak){
-    // 主存损坏或被系统清掉，用备份兜底
-    state.members = bak.members;
-    state.records = bak.records;
-    writeSlots();
-    setTimeout(function(){ toast("已从本地备份恢复数据"); }, 900);
-    return;
-  }
+
   // 两处都空：可能真是首次使用，也可能是被清了
   // 用"曾经写过"的痕迹判断一下，给出提示
   var had = false;
@@ -528,11 +762,25 @@ function load(){
   }
 }
 
-// 双写 + 回读校验
+// 多重持久化写入
 function writeSlots(){
+  // 写入前先检查 localStorage 中是否已有更高版本，若有则放弃覆盖并反向同步到内存
+  var existing = pickNewerState(readSlot(KEY), readSlot(KEY_BK));
+  if(isStrictlyNewer(existing, state)){
+    applyState(existing);
+    isDirty = false;
+    return true;
+  }
+
   var s = "";
   try{ s = JSON.stringify(state); }
   catch(e){ return false; }
+
+  // 写新主存 KEY 前，先将原 localStorage.getItem(KEY) 平移写入 KEY_BK，写完 KEY 后再更新 KEY_BK
+  try{
+    var prevMain = localStorage.getItem(KEY);
+    if(prevMain) localStorage.setItem(KEY_BK, prevMain);
+  }catch(e){}
 
   var okMain = false, okBak = false;
   try{
@@ -554,11 +802,44 @@ function writeSlots(){
     try{ localStorage.setItem(KEY, s); }catch(e){}
   }
   storageOK = true;
+  isDirty = false;
+
+  // 同步使用已打开的 idbConn 发起 readwrite 事务写入 KEY 并刷盘
+  if(idbConn){
+    try{
+      var tx = idbConn.transaction([IDB_STORE_NAME], "readwrite");
+      tx.objectStore(IDB_STORE_NAME).put(s, KEY);
+      if(typeof tx.commit === "function") tx.commit();
+    }catch(e){}
+  }
+
+  // 写入 CacheStorage
+  try{
+    if("caches" in window){
+      caches.open(DATA_CACHE_NAME).then(function(c){
+        c.put(STATE_CACHE_KEY, new Response(s, {
+          headers: { "Content-Type": "application/json" }
+        })).catch(function(){});
+      }).catch(function(){});
+    }
+  }catch(e){}
+
+  // 发给 Service Worker 异步落盘
+  try{
+    if(navigator.serviceWorker && navigator.serviceWorker.controller){
+      navigator.serviceWorker.controller.postMessage({ type: "SAVE_STATE", payload: s });
+    }
+  }catch(e){}
+
   return true;
 }
 
 var saveWarned = false;
 function save(){
+  state.rev = (state.rev || 0) + 1;
+  state.updatedAt = Date.now();
+  isDirty = true;
+
   if(!storageOK){
     if(!saveWarned){
       saveWarned = true;
@@ -570,14 +851,12 @@ function save(){
     saveWarned = true;
     toast("保存失败：存储空间可能已满，建议导出备份");
   }
-  // 主存内容比备份短很多，说明主存被清了：立刻重建
-  if(slotSize(KEY) < slotSize(KEY_BK) / 2 && slotSize(KEY_BK) > 0){
-    try{ localStorage.setItem(KEY, localStorage.getItem(KEY_BK)); }catch(e){}
-  }
 }
 
 // 页面隐藏/切后台/即将被回收时，再同步一次（移动端的关键保命动作）
 function flushNow(){
+  saveFormDraft();
+  if(!isDirty) return;
   if(!storageOK){ // 存储不可用，把当前数据塞进备份槽再试一次
     try{
       localStorage.setItem(KEY + "_t","1");
@@ -587,8 +866,34 @@ function flushNow(){
   }
   writeSlots();
 }
+
+// 页面唤醒同步：检查存储中是否有更高 rev 的数据并自动刷新渲染
+function checkSyncOnWake(){
+  var latest = pickNewerState(readSlot(KEY), readSlot(KEY_BK));
+  if(isStrictlyNewer(latest, state)){
+    applyState(latest);
+    render();
+  }
+  syncFromAsyncStores();
+}
+
+window.addEventListener("pageshow", function(e){
+  checkSyncOnWake();
+});
+window.addEventListener("focus", function(){
+  checkSyncOnWake();
+});
+window.addEventListener("storage", function(e){
+  if(!e.key || e.key === KEY || e.key === KEY_BK){
+    checkSyncOnWake();
+  }
+});
 document.addEventListener("visibilitychange", function(){
-  if(document.visibilityState === "hidden") flushNow();
+  if(document.visibilityState === "visible"){
+    checkSyncOnWake();
+  }else if(document.visibilityState === "hidden"){
+    flushNow();
+  }
 });
 window.addEventListener("pagehide", flushNow);
 window.addEventListener("freeze", flushNow);
@@ -847,6 +1152,7 @@ function openSheet(html){
   sheetEl.classList.add("on");                   // 滑入
 }
 function closeSheet(){
+  clearFormDraft();
   sheetEl.classList.remove("on");
   maskEl.classList.remove("on");
   document.body.style.overflow = "";
@@ -903,11 +1209,11 @@ function openRecordSheet(recId){
     + '</div>'
     + '<div class="flabel">金额</div>'
     + '<div class="amountbox ' + (sign > 0 ? "profit" : "loss") + '" id="fAmountBox">'
-    +   '<input id="fAmount" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" value="' + amtVal + '">'
+    +   '<input id="fAmount" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" value="' + amtVal + '" enterkeyhint="done">'
     +   '<div class="unit">单位：元</div>'
     + '</div>'
     + '<div class="flabel">备注（可选）</div>'
-    + '<input id="fNote" type="text" maxlength="40" placeholder="例如：打牌、项目分成" value="' + esc(editing ? (editing.note || "") : "") + '">'
+    + '<input id="fNote" type="text" maxlength="40" placeholder="例如：打牌、项目分成" value="' + esc(editing ? (editing.note || "") : "") + '" enterkeyhint="done">'
     + '<div class="flabel">日期</div>'
     + '<input id="fDate" type="date" value="' + esc(editing ? editing.date : todayStr()) + '">';
 
@@ -926,7 +1232,7 @@ function openRecordSheet(recId){
 /* ---------- 成员 ---------- */
 function openMemberSheet(){
   var body = '<div class="flabel">成员名字</div>'
-    + '<input id="mName" type="text" maxlength="12" placeholder="例如：张三" autocomplete="off">'
+    + '<input id="mName" type="text" maxlength="12" placeholder="例如：张三" autocomplete="off" enterkeyhint="done">'
     + '<div class="flabel">头像颜色</div>'
     + '<div class="pills" id="mColor">'
     + PALETTE.map(function(c, i){
@@ -1075,13 +1381,21 @@ function saveRecord(id){
   var memberId = memberEl.dataset.pick;
 
   if(id){
+    var found = false;
     for(var i=0;i<state.records.length;i++){
       if(state.records[i].id === id){
+        found = true;
         state.records[i].amount = amount;
         state.records[i].note = note;
         state.records[i].date = date;
         state.records[i].memberId = memberId;
       }
+    }
+    if(!found){
+      state.records.push({
+        id: id, memberId: memberId, amount: amount,
+        note: note, date: date, createdAt: Date.now()
+      });
     }
     toast("已更新");
   }else{
@@ -1095,6 +1409,7 @@ function saveRecord(id){
     localStorage.setItem(KEY + "_lastMember", memberId);
     localStorage.setItem(KEY + "_lastSign", String(sign));
   }catch(e){}
+  clearFormDraft();
   save();
   closeSheet();
   render();
@@ -1120,6 +1435,7 @@ function saveMember(){
     id: uid(), name: name,
     color: (colorEl && colorEl.dataset.color) || PALETTE[state.members.length % PALETTE.length]
   });
+  clearFormDraft();
   save(); closeSheet(); render();
   toast("已添加 " + name);
 }
@@ -1332,6 +1648,7 @@ document.addEventListener("click", function(e){
       var ps = box.querySelectorAll(".pill");
       for(var i=0;i<ps.length;i++) ps[i].classList.remove("on");
       pick.classList.add("on");
+      saveFormDraft();
     }
     return;
   }
@@ -1342,6 +1659,7 @@ document.addEventListener("click", function(e){
       var cs = cbox.querySelectorAll(".pill");
       for(var j=0;j<cs.length;j++) cs[j].classList.remove("on");
       cbtn.classList.add("on");
+      saveFormDraft();
     }
     return;
   }
@@ -1356,6 +1674,7 @@ document.addEventListener("click", function(e){
       abox.classList.toggle("profit", sbtn.dataset.sign === "1");
       abox.classList.toggle("loss", sbtn.dataset.sign === "-1");
     }
+    saveFormDraft();
     return;
   }
 
@@ -1402,6 +1721,13 @@ document.addEventListener("click", function(e){
   else if(act === "import-json"){ importJSON(); }
   else if(act === "copy-summary"){ copySummary(); }
   else if(act === "clear-all"){ clearAll(); }
+});
+
+sheetEl.addEventListener("input", function(){
+  saveFormDraft();
+});
+sheetEl.addEventListener("change", function(){
+  saveFormDraft();
 });
 
 document.addEventListener("keydown", function(e){
@@ -1454,14 +1780,25 @@ var MANIFEST = {
  * 策略：stale-while-revalidate —— 先用缓存立即渲染，后台静默拉新版。
  * 记账工具"打开快"比"永远最新"重要；改版后第二次打开即生效。 */
 var SW_SOURCE = [
-  'var CACHE = "pl-v1";',
+  'var CACHE = "pl-tracker-v2";',
+  'var DATA_CACHE = "pl-tracker-data-v1";',
   'self.addEventListener("install", function(e){ self.skipWaiting(); });',
   'self.addEventListener("activate", function(e){',
   '  e.waitUntil(',
   '    caches.keys().then(function(ks){',
-  '      return Promise.all(ks.map(function(k){ return k === CACHE ? null : caches.delete(k); }));',
+  '      return Promise.all(ks.map(function(k){ return (k === CACHE || k === DATA_CACHE) ? null : caches.delete(k); }));',
   '    }).then(function(){ return self.clients.claim(); })',
   '  );',
+  '});',
+  'self.addEventListener("message", function(e){',
+  '  if(e.data && e.data.type === "SAVE_STATE"){',
+  '    var payload = e.data.payload;',
+  '    var content = typeof payload === "string" ? payload : JSON.stringify(payload);',
+  '    var p = caches.open(DATA_CACHE).then(function(cache){',
+  '      return cache.put("./__pl_tracker_state__.json", new Response(content, { headers: { "Content-Type": "application/json" } }));',
+  '    });',
+  '    if(e.waitUntil) e.waitUntil(p);',
+  '  }',
   '});',
   'self.addEventListener("fetch", function(e){',
   '  if(e.request.method !== "GET") return;',
@@ -1481,58 +1818,31 @@ var SW_SOURCE = [
   '});'
 ].join("\n");
 
-// 探测同目录下是否存在真文件（发布版）。
-// 必须绝对安全：fetch 可能不存在（老 WebView），也可能同步抛错。
-function probe(url){
-  if(typeof fetch !== "function") return Promise.resolve(null);
-  try{
-    return fetch(url, { method: "HEAD", cache: "no-store" })
-      .then(function(r){
-        if(!r || !r.ok) return null;
-        var ct = (r.headers && r.headers.get && r.headers.get("content-type")) || "";
-        // 静态服务器对不存在文件的 SPA 回退会返回 HTML，必须排除
-        if(/text\/html/.test(ct)) return null;
-        return url;
-      })
-      .catch(function(){ return null; });
-  }catch(e){
-    return Promise.resolve(null);
-  }
-}
-
 /* setupPWA 全程不得影响主流程启动：
  * 任何异常都必须被吞掉，绝不能让它阻断后面的 load()/render()。 */
 function setupPWA(){
   try{
-    // file:// 下 SW 无法注册、manifest 也无意义 —— 整体跳过（不要抛错）
-    if(location.protocol === "file:") return;
+    // file:// 下 SW 无法注册、manifest 也无意义 —— 移除静态 manifest 并跳过
+    if(location.protocol === "file:"){
+      var ml = document.getElementById("manifestLink");
+      if(ml && ml.parentNode) ml.parentNode.removeChild(ml);
+      return;
+    }
 
-    // 1) manifest：优先真文件，取不到再注入 Blob
-    probe("manifest.webmanifest").then(function(url){
-      try{
-        var link = document.createElement("link");
-        link.rel = "manifest";
-        if(url){
-          link.href = url;
-        }else{
-          var mf = new Blob([JSON.stringify(MANIFEST)], { type: "application/manifest+json" });
-          link.href = URL.createObjectURL(mf);
-        }
-        document.head.appendChild(link);
-      }catch(e){}
-    });
+    // 申请持久化存储权限
+    if(navigator.storage && navigator.storage.persist){
+      navigator.storage.persist().catch(function(){});
+    }
 
-    // 2) Service Worker：优先真 sw.js（作用域可靠），否则 Blob 兜底
     if(!("serviceWorker" in navigator)) return;
-    probe("sw.js").then(function(url){
+
+    // 直接注册 ./sw.js，失败时回退到 Blob SW_SOURCE
+    navigator.serviceWorker.register("./sw.js").then(function(reg){
+      if(reg && reg.update) reg.update().catch(function(){});
+    }).catch(function(){
       try{
-        var target;
-        if(url){
-          target = url;
-        }else{
-          var swBlob = new Blob([SW_SOURCE], { type: "text/javascript" });
-          target = URL.createObjectURL(swBlob);
-        }
+        var swBlob = new Blob([SW_SOURCE], { type: "text/javascript" });
+        var target = URL.createObjectURL(swBlob);
         navigator.serviceWorker.register(target).catch(function(){});
       }catch(e){}
     });
@@ -1550,6 +1860,8 @@ if(!storageOK){
   setTimeout(function(){ toast("注意：浏览器禁用了本地存储，数据无法保存"); }, 700);
 }
 render();
+syncFromAsyncStores();
+restoreFormDraftIfAny();
 
 // PWA 注册放到最后，且整段独立容错 —— 它失败不能影响应用本身
 try{ setupPWA(); }catch(e){}
