@@ -6,7 +6,7 @@
  * 注意：本文件必须与 index.html 同级，这样 SW 的默认作用域才是整个站点目录。
  */
 
-var CACHE = 'pl-tracker-v3';
+var CACHE = 'pl-tracker-v4';
 var DATA_CACHE = 'pl-tracker-data-v1';
 
 /* 需要预缓存的 App 外壳文件。

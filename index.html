@@ -280,6 +280,7 @@ input[type=date]{-webkit-appearance:none;appearance:none;min-height:48px}
   background:var(--sub);color:var(--muted);font-size:15px;font-weight:550;
   transition:all .15s;
 }
+.seg button.on{background:var(--acc-bg);border-color:var(--accent);color:var(--accent);font-weight:700}
 .seg button.on[data-sign="1"]{background:var(--profit-bg);border-color:var(--profit);color:var(--profit);font-weight:700}
 .seg button.on[data-sign="-1"]{background:var(--loss-bg);border-color:var(--loss);color:var(--loss);font-weight:700}
 
@@ -660,8 +661,13 @@ function syncFromAsyncStores(){
 
     if(isStrictlyNewer(bestAsync, currBest)){
       applyState(bestAsync);
+      var am = applyAutoMerge();
       isDirty = false;
-      writeSlots();
+      if(am.changed){
+        save();
+      }else{
+        writeSlots();
+      }
       render();
     }
   }).catch(function(){});
@@ -792,8 +798,11 @@ function load(){
 
   if(chosen){
     applyState(chosen);
-    // 主存或备份缺失/比另一份旧 —— 补一次双写
-    if(!main || !bak || isStrictlyNewer(bak, main)){
+    var am = applyAutoMerge();
+    // 主存或备份缺失/比另一份旧 —— 补一次双写；若自动归并压缩了数据则保存新版本
+    if(am.changed){
+      save();
+    }else if(!main || !bak || isStrictlyNewer(bak, main)){
       writeSlots();
     }
     if(!main && bak){
@@ -921,6 +930,8 @@ function checkSyncOnWake(){
   var latest = pickNewerState(readSlot(KEY), readSlot(KEY_BK));
   if(isStrictlyNewer(latest, state)){
     applyState(latest);
+    var am = applyAutoMerge();
+    if(am.changed) save();
     render();
   }
   syncFromAsyncStores();
@@ -1077,16 +1088,22 @@ function renderRecords(){
   }
 
   if(state.records.length > 0){
+    var autoMerge = getAutoMerge();
     var mInfo = analyzeMergeRounds(getMergeGap());
     var hasMerge = mInfo.rounds.length > 0;
+    var mbTitle = hasMerge
+      ? ('可归并 ' + mInfo.rounds.length + ' 轮流水')
+      : (autoMerge ? '自动归并已开启' : '流水归并');
+    var mbSub = hasMerge
+      ? ('按' + mergeGapLabel(mInfo.gap) + '窗口：' + mInfo.origTotal + ' 笔 → ' + mInfo.newTotal + ' 笔')
+      : ('按' + mergeGapLabel(mInfo.gap) + '窗口' + (autoMerge ? '自动合成每轮净额' : ' · 暂无可合并轮次'));
+    var mbBtn = hasMerge ? '预览归并' : '归并设置';
     html += '<div class="mergebar' + (hasMerge ? ' has' : '') + '" data-act="open-merge">'
          +    '<div class="mb-info">'
-         +      '<div class="mb-title">' + (hasMerge ? ('可归并 ' + mInfo.rounds.length + ' 轮流水') : '流水归并') + '</div>'
-         +      '<div class="mb-sub">' + (hasMerge
-                  ? ('按' + mergeGapLabel(mInfo.gap) + '窗口：' + mInfo.origTotal + ' 笔 → ' + mInfo.newTotal + ' 笔')
-                  : ('按' + mergeGapLabel(mInfo.gap) + '窗口 · 暂无可合并轮次')) + '</div>'
+         +      '<div class="mb-title">' + mbTitle + '</div>'
+         +      '<div class="mb-sub">' + mbSub + '</div>'
          +    '</div>'
-         +    '<button type="button" class="mb-btn">' + (hasMerge ? '预览归并' : '调整窗口') + '</button>'
+         +    '<button type="button" class="mb-btn">' + mbBtn + '</button>'
          +  '</div>';
   }
 
@@ -1177,7 +1194,7 @@ function renderSettings(){
        +  '</div></div>';
 
   html += '<div class="sec-title"><span>数据</span></div><div class="card">'
-       +  '<div class="listrow" data-act="open-merge"><div class="ico" style="width:22px;text-align:center">⇄</div><div class="nm">流水归并</div><div class="sm">按轮次压缩</div></div>'
+       +  '<div class="listrow" data-act="open-merge"><div class="ico" style="width:22px;text-align:center">⇄</div><div class="nm">流水归并</div><div class="sm">' + (getAutoMerge() ? ('自动 · ' + mergeGapLabel(getMergeGap())) : '手动') + '</div></div>'
        +  '<div class="listrow" data-act="copy-summary"><div class="ico" style="width:22px;text-align:center">📋</div><div class="nm">复制汇总文本</div><div class="sm">发给群里</div></div>'
        +  '<div class="listrow" data-act="export-csv"><div class="ico" style="width:22px;text-align:center">📊</div><div class="nm">导出 CSV 表格</div><div class="sm">Excel 可打开</div></div>'
        +  '<div class="listrow" data-act="export-json"><div class="ico" style="width:22px;text-align:center">💾</div><div class="nm">导出备份文件</div><div class="sm">可再导入</div></div>'
@@ -1398,6 +1415,7 @@ function openBalanceSheet(){
 
 /* ---------- 流水归并（按时间窗口/轮次） ---------- */
 var MERGE_GAP_KEY = KEY + "_mergeGap";
+var AUTO_MERGE_KEY = KEY + "_autoMerge";
 var mergeUi = { selected: {} };
 
 function getMergeGap(){
@@ -1409,6 +1427,14 @@ function getMergeGap(){
 }
 function setMergeGap(val){
   try{ localStorage.setItem(MERGE_GAP_KEY, String(val)); }catch(e){}
+}
+function getAutoMerge(){
+  var raw = null;
+  try{ raw = localStorage.getItem(AUTO_MERGE_KEY); }catch(e){}
+  return raw !== "0"; // 默认开启自动归并
+}
+function setAutoMerge(on){
+  try{ localStorage.setItem(AUTO_MERGE_KEY, on ? "1" : "0"); }catch(e){}
 }
 function mergeGapLabel(gap){
   if(gap === "day") return "同一天";
@@ -1484,7 +1510,8 @@ function analyzeMergeRounds(gap){
     for(var k = 0; k < items.length; k++){
       var it = items[k];
       var ts = (typeof it.createdAt === "number" && it.createdAt > 0) ? it.createdAt : 0;
-      if(ts && ts < minTs) minTs = ts;
+      var sTs = (typeof it.mergedStartTs === "number" && it.mergedStartTs > 0) ? it.mergedStartTs : ts;
+      if(sTs && sTs < minTs) minTs = sTs;
       if(ts && ts > maxTs) maxTs = ts;
 
       if(!byMem[it.memberId]){
@@ -1542,6 +1569,7 @@ function analyzeMergeRounds(gap){
       zeroed: zeroed,
       startDate: startDate,
       endDate: endDate,
+      startTs: (minTs !== Infinity) ? minTs : (maxTs || Date.now()),
       endTs: maxTs || Date.now(),
       timeRange: timeRange,
       label: label
@@ -1555,7 +1583,47 @@ function analyzeMergeRounds(gap){
   return { gap: gap, rounds: rounds, origTotal: origTotal, newTotal: newTotal };
 }
 
+function mergeRounds(rounds){
+  if(!rounds || !rounds.length) return { changed: false, origCount: 0, newCount: 0 };
+  var removeIds = {};
+  var newRecs = [];
+  var origCount = 0;
+
+  for(var i = 0; i < rounds.length; i++){
+    var rd = rounds[i];
+    origCount += rd.items.length;
+    for(var j = 0; j < rd.items.length; j++){
+      removeIds[rd.items[j].id] = true;
+    }
+    for(var k = 0; k < rd.kept.length; k++){
+      var kp = rd.kept[k];
+      newRecs.push({
+        id: uid(),
+        memberId: kp.memberId,
+        amount: kp.sum,
+        note: kp.notes.join("、"),
+        date: rd.endDate,
+        createdAt: rd.endTs,
+        mergedCount: kp.mergedOrig,
+        mergedRange: rd.timeRange,
+        mergedStartTs: rd.startTs
+      });
+    }
+  }
+
+  state.records = state.records.filter(function(r){ return !removeIds[r.id]; }).concat(newRecs);
+  return { changed: true, origCount: origCount, newCount: newRecs.length };
+}
+
+function applyAutoMerge(){
+  if(!getAutoMerge()) return { changed: false, origCount: 0, newCount: 0 };
+  var info = analyzeMergeRounds(getMergeGap());
+  if(!info.rounds.length) return { changed: false, origCount: 0, newCount: 0 };
+  return mergeRounds(info.rounds);
+}
+
 function openMergeSheet(preserveScroll){
+  var autoMerge = getAutoMerge();
   var gap = getMergeGap();
   var info = analyzeMergeRounds(gap);
   var rounds = info.rounds;
@@ -1577,7 +1645,12 @@ function openMergeSheet(preserveScroll){
   var isPreset = presets.some(function(p){ return p.v === gap; });
 
   var body = '<div class="hintbox" style="margin-bottom:12px">'
-    + '把相邻记账间隔不超过设定时间的记录归为一轮，每人合成一笔净额（如 A+5、C-3、B-2），净盈亏为 0 的成员自动省略。归并后 8 秒内可撤销。'
+    + '把相邻记账间隔不超过设定时间的记录归为一轮，每人合成一笔净额（如 A+5、C-3、B-2），净盈亏为 0 的成员自动省略。'
+    + '</div>'
+    + '<div class="flabel">归并模式</div>'
+    + '<div class="seg" style="margin-bottom:14px">'
+    +   '<button type="button" class="' + (autoMerge ? "on" : "") + '" data-act="set-auto-merge" data-on="1">自动归并（默认）</button>'
+    +   '<button type="button" class="' + (!autoMerge ? "on" : "") + '" data-act="set-auto-merge" data-on="0">仅手动归并</button>'
     + '</div>'
     + '<div class="flabel">归并时间窗口</div>'
     + '<div class="stepbtns" style="padding:0;margin-bottom:14px">'
@@ -1599,8 +1672,10 @@ function openMergeSheet(preserveScroll){
 
   if(rounds.length === 0){
     body += '<div class="empty" style="padding:30px 16px"><span class="ic">✨</span>'
-         +  '当前「' + mergeGapLabel(gap) + '」窗口下没有需要归并的流水<br>'
-         +  '<span style="font-size:12.5px">可尝试调大时间窗口（如 30 分钟或同一天）</span></div>';
+         +  (autoMerge
+              ? ('当前「' + mergeGapLabel(gap) + '」窗口下已自动归并<br><span style="font-size:12.5px">新记账在窗口内会自动合成一笔净额</span>')
+              : ('当前「' + mergeGapLabel(gap) + '」窗口下没有需要归并的流水<br><span style="font-size:12.5px">可尝试调大时间窗口（如 30 分钟或同一天）</span>'))
+         +  '</div>';
   }else{
     var allOn = (selCount === rounds.length);
     body += '<div class="sec-title" style="margin:6px 2px 10px">'
@@ -1664,37 +1739,12 @@ function executeMerge(){
   var chosen = info.rounds.filter(function(rd){ return !!mergeUi.selected[rd.key]; });
   if(!chosen.length){ toast("请先选择要归并的轮次"); return; }
 
-  var removeIds = {};
-  var newRecs = [];
-  var origCount = 0;
-
-  for(var i = 0; i < chosen.length; i++){
-    var rd = chosen[i];
-    origCount += rd.items.length;
-    for(var j = 0; j < rd.items.length; j++){
-      removeIds[rd.items[j].id] = true;
-    }
-    for(var k = 0; k < rd.kept.length; k++){
-      var kp = rd.kept[k];
-      newRecs.push({
-        id: uid(),
-        memberId: kp.memberId,
-        amount: kp.sum,
-        note: kp.notes.join("、"),
-        date: rd.endDate,
-        createdAt: rd.endTs,
-        mergedCount: kp.mergedOrig,
-        mergedRange: rd.timeRange
-      });
-    }
-  }
-
   var backup = state.records.slice();
-  state.records = state.records.filter(function(r){ return !removeIds[r.id]; }).concat(newRecs);
+  var res = mergeRounds(chosen);
   save();
   closeSheet();
   render();
-  toast("已归并 " + origCount + " 笔为 " + newRecs.length + " 笔", "撤销", function(){
+  toast("已归并 " + res.origCount + " 笔为 " + res.newCount + " 笔", "撤销", function(){
     state.records = backup;
     save();
     render();
@@ -1721,17 +1771,19 @@ function quickRecord(memberId, sign){
   for(var i=0;i<state.members.length;i++) if(state.members[i].id === memberId) m = state.members[i];
   if(!m) return;
 
+  var backup = state.records.slice();
   var amount = (sign < 0 ? -1 : 1) * getStep();
   var rec = {
     id: uid(), memberId: memberId, amount: amount,
     note: "", date: todayStr(), createdAt: Date.now()
   };
   state.records.push(rec);
+  applyAutoMerge();
   save();
   render();
   // 省掉了确认步骤，所以给一次后悔的机会
   toast(m.name + " " + moneySign(amount), "撤销", function(){
-    state.records = state.records.filter(function(x){ return x.id !== rec.id; });
+    state.records = backup;
     save(); render();
     toast("已撤销");
   });
@@ -1773,13 +1825,15 @@ function saveRecord(id){
         note: note, date: date, createdAt: Date.now()
       });
     }
-    toast("已更新");
+    var amEdit = applyAutoMerge();
+    toast(amEdit.changed ? "已更新（已自动归并）" : "已更新");
   }else{
     state.records.push({
       id: uid(), memberId: memberId, amount: amount,
       note: note, date: date, createdAt: Date.now()
     });
-    toast("已记录 " + moneySign(amount));
+    var amAdd = applyAutoMerge();
+    toast("已记录 " + moneySign(amount) + (amAdd.changed ? "（已归并）" : ""));
   }
   try{
     localStorage.setItem(KEY + "_lastMember", memberId);
@@ -1959,8 +2013,9 @@ function importJSON(){
         state.records.forEach(function(r){ seenR[r.id] = true; });
         d.records.forEach(function(r){ if(!seenR[r.id]) state.records.push(r); });
       }
+      var am = applyAutoMerge();
       save(); closeSheet(); render();
-      toast("导入完成：" + state.members.length + " 人 / " + state.records.length + " 笔");
+      toast("导入完成：" + state.members.length + " 人 / " + state.records.length + " 笔" + (am.changed ? "（已自动归并）" : ""));
     };
     fr.readAsText(f);
   };
@@ -2090,6 +2145,33 @@ document.addEventListener("click", function(e){
   else if(act === "rec-menu"){ openRecMenu(el.dataset.id); }
   else if(act === "balance-detail"){ openBalanceSheet(); }
   else if(act === "open-merge"){ openMergeSheet(false); }
+  else if(act === "set-auto-merge"){
+    var nextOn = el.dataset.on === "1";
+    if(nextOn === getAutoMerge()) return;
+    setAutoMerge(nextOn);
+    if(nextOn){
+      var backup = state.records.slice();
+      var am = applyAutoMerge();
+      if(am.changed){
+        save();
+        render();
+        openMergeSheet(false);
+        toast("已开启自动归并（" + am.origCount + " 笔 → " + am.newCount + " 笔）", "撤销", function(){
+          setAutoMerge(false);
+          state.records = backup;
+          save();
+          render();
+          toast("已恢复原流水并切回手动归并");
+        }, 8000);
+        return;
+      }
+      toast("已开启自动归并");
+    }else{
+      toast("已切换为手动归并");
+    }
+    openMergeSheet(false);
+    if(ui.tab === "records" || ui.tab === "settings") render();
+  }
   else if(act === "merge-gap"){
     var gv = el.dataset.gap === "day" ? "day" : (parseInt(el.dataset.gap, 10) || 15);
     setMergeGap(gv);
@@ -2195,7 +2277,7 @@ var MANIFEST = {
  * 策略：stale-while-revalidate —— 先用缓存立即渲染，后台静默拉新版。
  * 记账工具"打开快"比"永远最新"重要；改版后第二次打开即生效。 */
 var SW_SOURCE = [
-  'var CACHE = "pl-tracker-v3";',
+  'var CACHE = "pl-tracker-v4";',
   'var DATA_CACHE = "pl-tracker-data-v1";',
   'self.addEventListener("install", function(e){ self.skipWaiting(); });',
   'self.addEventListener("activate", function(e){',
