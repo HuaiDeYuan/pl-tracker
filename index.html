@@ -54,7 +54,7 @@ input,textarea,select{font-family:inherit}
   min-height:52px;
 }
 .topbar h1{margin:0;font-size:19px;font-weight:650;letter-spacing:.3px}
-.topbar .sub{font-size:12px;color:var(--muted);text-align:right;line-height:1.35}
+.topbar .sub{font-size:12px;color:var(--muted);text-align:right;line-height:1.35;min-height:37px;display:flex;flex-direction:column;justify-content:center}
 .topbar .sub b{display:block;font-size:15px;font-weight:650;font-variant-numeric:tabular-nums}
 
 /* ---------- 主区 ---------- */
@@ -89,17 +89,19 @@ main{padding:14px 14px 8px;max-width:640px;margin:0 auto}
   margin-top:14px;padding:11px 13px;border-radius:13px;
   background:var(--sub);border:1px solid var(--line);
   font-size:13.5px;color:var(--muted);
-  transition:opacity .15s;
+  min-height:46px;
+  transition:opacity .15s,background .15s,border-color .15s,color .15s;
 }
 .balancebar:active{opacity:.68}
+.balancebar.idle{opacity:.72}
 .balancebar .bic{
   width:20px;height:20px;border-radius:50%;flex:0 0 20px;
   display:flex;align-items:center;justify-content:center;
   font-size:12px;font-weight:800;
   background:rgba(127,127,127,.18);color:var(--muted);
 }
-.balancebar .bt{flex:1;text-align:left}
-.balancebar .bv{font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);font-size:14.5px}
+.balancebar .bt{flex:1;min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.balancebar .bv{flex:0 0 auto;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);font-size:14.5px;white-space:nowrap}
 .balancebar.warn{background:var(--warn-bg);border-color:var(--warn);color:var(--warn)}
 .balancebar.warn .bic{background:var(--warn);color:#fff}
 .balancebar.warn .bv{color:var(--warn)}
@@ -1004,7 +1006,13 @@ function balanceState(t){
   return { ok: t.net === 0, diff: t.net };
 }
 function balanceBar(t){
-  if(!t.count) return "";
+  if(!t.count){
+    return '<div class="balancebar idle" data-act="balance-detail">'
+         +   '<span class="bic">✓</span>'
+         +   '<span class="bt">总账平衡 · 暂无记录</span>'
+         +   '<span class="bv">0.00</span>'
+         + '</div>';
+  }
   var b = balanceState(t);
   return '<div class="balancebar' + (b.ok ? "" : " warn") + '" data-act="balance-detail">'
        +   '<span class="bic">' + (b.ok ? "✓" : "!") + '</span>'
@@ -2277,7 +2285,7 @@ var MANIFEST = {
  * 策略：stale-while-revalidate —— 先用缓存立即渲染，后台静默拉新版。
  * 记账工具"打开快"比"永远最新"重要；改版后第二次打开即生效。 */
 var SW_SOURCE = [
-  'var CACHE = "pl-tracker-v4";',
+  'var CACHE = "pl-tracker-v5";',
   'var DATA_CACHE = "pl-tracker-data-v1";',
   'self.addEventListener("install", function(e){ self.skipWaiting(); });',
   'self.addEventListener("activate", function(e){',
